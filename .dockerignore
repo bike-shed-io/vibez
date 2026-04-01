@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env
+env/
+pkg/
+prompts/
+*.md
+.gitignore
+.dockerignore

@@ -1,0 +1,8 @@
+services:
+  vibez:
+    image: vibez:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:3005"
+    env_file:
+      - prod.env
