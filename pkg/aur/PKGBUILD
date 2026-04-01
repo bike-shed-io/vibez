@@ -1,0 +1,56 @@
+# Maintainer: Your Name <you@example.com>
+pkgname=vibez
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Team Radio — synchronized music listening for pair programming"
+arch=('x86_64' 'aarch64')
+url="https://github.com/yourorg/vibez"
+license=('MIT')
+depends=('bun-bin')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz"
+        "vibez.service"
+        "vibez.sysusers"
+        "vibez.tmpfiles")
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+backup=('etc/vibez/env')
+install=vibez.install
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  bun install --production --frozen-lockfile
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+
+  # App files
+  install -dm755 "${pkgdir}/opt/vibez"
+  cp -r src public node_modules package.json "${pkgdir}/opt/vibez/"
+
+  # Environment config
+  install -Dm640 /dev/null "${pkgdir}/etc/vibez/env"
+  cat > "${pkgdir}/etc/vibez/env" <<'EOF'
+# Slack Bot Token (xoxb-...)
+SLACK_BOT_TOKEN=
+
+# Slack App-Level Token for Socket Mode (xapp-...)
+SLACK_APP_TOKEN=
+
+# Public URL where the radio web player is hosted
+RADIO_URL=http://localhost:3000
+
+# Server port
+PORT=3000
+EOF
+
+  # Systemd units
+  install -Dm644 "${srcdir}/vibez.service" "${pkgdir}/usr/lib/systemd/system/vibez.service"
+  install -Dm644 "${srcdir}/vibez.sysusers" "${pkgdir}/usr/lib/sysusers.d/vibez.conf"
+  install -Dm644 "${srcdir}/vibez.tmpfiles" "${pkgdir}/usr/lib/tmpfiles.d/vibez.conf"
+
+  # License
+  install -Dm644 /dev/null "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

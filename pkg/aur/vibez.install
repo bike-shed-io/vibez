@@ -1,0 +1,15 @@
+post_install() {
+  echo ""
+  echo "==> Configure vibez by editing /etc/vibez/env"
+  echo "    Set SLACK_BOT_TOKEN and SLACK_APP_TOKEN for Slack integration."
+  echo ""
+  echo "==> Start the service:"
+  echo "    systemctl enable --now vibez.service"
+  echo ""
+  echo "==> Then open http://localhost:3000 in your browser."
+  echo ""
+}
+
+post_upgrade() {
+  post_install
+}

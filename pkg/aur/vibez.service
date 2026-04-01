@@ -1,0 +1,23 @@
+[Unit]
+Description=vibez Team Radio
+After=network.target
+
+[Service]
+Type=simple
+User=vibez
+Group=vibez
+EnvironmentFile=/etc/vibez/env
+WorkingDirectory=/opt/vibez
+ExecStart=/usr/bin/bun run src/index.ts
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/vibez
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
