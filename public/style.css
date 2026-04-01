@@ -201,6 +201,12 @@ button:active {
   margin-top: 0.25rem;
 }
 
+/* Autoplay prompt */
+.autoplay-prompt {
+  text-align: center;
+  padding: 1.5rem 0;
+}
+
 .no-track {
   color: var(--text-dim);
   font-size: 0.95rem;
@@ -208,16 +214,92 @@ button:active {
   padding: 2rem 0;
 }
 
-/* SC embed */
-.sc-embed {
-  border-radius: 8px;
-  overflow: hidden;
+/* Volume control */
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0 0.25rem;
+}
+
+.volume-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.volume-control input[type="range"] {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.volume-control input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+}
+
+/* Seek bar */
+.seek-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 1rem;
 }
 
-.sc-embed iframe {
-  width: 100%;
+.seek-time {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+}
+
+.seek-control input[type="range"] {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.seek-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
+
+.seek-control input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
   border: none;
+  cursor: pointer;
 }
 
 /* DJ controls */
@@ -285,6 +367,23 @@ button:active {
   height: 6px;
   border-radius: 50%;
   background: var(--success);
+}
+
+.listener-chip.dj-chip {
+  background: var(--accent);
+  color: #fff;
+}
+
+.listener-chip .dot.dj {
+  background: #fff;
+}
+
+.dj-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.85;
 }
 
 .hidden {

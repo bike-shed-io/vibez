@@ -2,10 +2,10 @@
   // --- State ---
   let ws = null;
   let isDj = false;
-  let widget = null;
-  let widgetReady = false;
   let currentTrackUrl = null;
-  let suppressWidgetEvents = false;
+  let refreshPosition = 0;
+  let isSeeking = false;
+  let currentListenerNames = [];
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
@@ -28,11 +28,29 @@
   const resumeBtn = $("resumeBtn");
   const listenerCount = $("listenerCount");
   const listenerList = $("listenerList");
-  const scWidgetIframe = $("scWidget");
+  const audio = $("audioPlayer");
+  const volumeSlider = $("volumeSlider");
+  const volumeIcon = $("volumeIcon");
+  const autoplayPrompt = $("autoplayPrompt");
+  const autoplayBtn = $("autoplayBtn");
+  const seekBar = $("seekBar");
+  const seekCurrent = $("seekCurrent");
+  const seekDuration = $("seekDuration");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
   if (savedName) nameInput.value = savedName;
+
+  // --- Restore volume from localStorage ---
+  const savedVolume = localStorage.getItem("vibez:volume");
+  if (savedVolume !== null) {
+    let vol = parseFloat(savedVolume);
+    if (vol > 1) vol = vol / 100; // migrate old 0-100 values
+    volumeSlider.value = vol;
+    audio.volume = vol;
+  } else {
+    audio.volume = 0.8;
+  }
 
   // --- Join ---
   function join() {
@@ -79,43 +97,46 @@
         updateDj(msg.djName);
         updateListeners(msg.listeners, msg.listeners?.length || 0);
         if (msg.trackUrl) {
-          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork);
+          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork, msg.streamUrl);
           if (msg.isPlaying) {
-            const elapsed = Date.now() - msg.positionTimestamp;
-            const pos = msg.position + elapsed;
-            playAt(pos);
+            playAt(msg.position, msg.positionTimestamp);
           }
         }
         break;
 
       case "track":
-        showTrack(msg.url, msg.title, msg.artwork);
+        showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl);
         break;
 
-      case "play": {
-        const elapsed = Date.now() - msg.timestamp;
-        const pos = msg.position + elapsed;
-        playAt(pos);
+      case "play":
+        playAt(msg.position, msg.timestamp);
         break;
-      }
 
       case "pause":
         pauseAt(msg.position);
         break;
 
-      case "seek": {
-        const elapsed = Date.now() - msg.timestamp;
-        const pos = msg.position + elapsed;
-        seekTo(pos);
+      case "seek":
+        audio.currentTime = Math.max(0, (msg.position + (Date.now() - msg.timestamp)) / 1000);
         break;
-      }
 
       case "dj:changed":
         updateDj(msg.djName);
+        refreshListenerChips();
         break;
 
       case "listeners":
         updateListeners(msg.names, msg.count);
+        break;
+
+      case "stream:refreshed":
+        if (msg.streamUrl) {
+          audio.src = msg.streamUrl;
+          audio.addEventListener("canplay", () => {
+            audio.currentTime = refreshPosition;
+            audio.play().catch(() => {});
+          }, { once: true });
+        }
         break;
 
       case "error":
@@ -124,29 +145,8 @@
     }
   }
 
-  // --- SC Widget ---
-  function initWidget() {
-    widget = SC.Widget(scWidgetIframe);
-    widget.bind(SC.Widget.Events.READY, () => {
-      widgetReady = true;
-    });
-  }
-
-  function loadTrack(url, callback) {
-    if (!widget) initWidget();
-    widgetReady = false;
-    const embedUrl = `https://w.soundcloud.com/player/?url=${encodeURIComponent(url)}&auto_play=false&show_artwork=true&visual=false`;
-    scWidgetIframe.src = embedUrl;
-
-    // Re-bind after src change
-    widget = SC.Widget(scWidgetIframe);
-    widget.bind(SC.Widget.Events.READY, () => {
-      widgetReady = true;
-      if (callback) callback();
-    });
-  }
-
-  function showTrack(url, title, artwork) {
+  // --- Track display ---
+  function showTrack(url, title, artwork, streamUrl) {
     trackInfo.classList.remove("hidden");
     noTrack.classList.add("hidden");
     trackTitle.textContent = title || "Unknown Track";
@@ -156,42 +156,54 @@
     } else {
       trackArtwork.classList.add("hidden");
     }
-
-    if (url !== currentTrackUrl) {
+    if (url !== currentTrackUrl && streamUrl) {
       currentTrackUrl = url;
-      loadTrack(url);
+      audio.src = streamUrl;
+      audio.load();
     }
   }
 
-  function playAt(positionMs) {
+  // --- Playback ---
+  let pendingPlay = null;
+
+  function playAt(position, timestamp) {
     const doPlay = () => {
-      suppressWidgetEvents = true;
-      widget.seekTo(Math.max(0, positionMs));
-      widget.play();
-      setTimeout(() => { suppressWidgetEvents = false; }, 500);
+      const pos = (position + (Date.now() - timestamp)) / 1000;
+      audio.currentTime = Math.max(0, pos);
+      audio.play().catch(() => {
+        // Autoplay blocked — show prompt
+        pendingPlay = { position, timestamp };
+        autoplayPrompt.classList.remove("hidden");
+      });
     };
-
-    if (widgetReady) {
+    if (audio.readyState >= 2) {
       doPlay();
-    } else if (widget) {
-      widget.bind(SC.Widget.Events.READY, doPlay);
+    } else {
+      audio.addEventListener("canplay", doPlay, { once: true });
     }
   }
+
+  autoplayBtn.addEventListener("click", () => {
+    autoplayPrompt.classList.add("hidden");
+    if (pendingPlay) {
+      const pos = (pendingPlay.position + (Date.now() - pendingPlay.timestamp)) / 1000;
+      audio.currentTime = Math.max(0, pos);
+      pendingPlay = null;
+    }
+    audio.play().catch(() => {});
+  });
 
   function pauseAt(positionMs) {
-    if (!widgetReady) return;
-    suppressWidgetEvents = true;
-    widget.pause();
-    widget.seekTo(Math.max(0, positionMs));
-    setTimeout(() => { suppressWidgetEvents = false; }, 500);
+    audio.pause();
+    audio.currentTime = Math.max(0, positionMs / 1000);
   }
 
-  function seekTo(positionMs) {
-    if (!widgetReady) return;
-    suppressWidgetEvents = true;
-    widget.seekTo(Math.max(0, positionMs));
-    setTimeout(() => { suppressWidgetEvents = false; }, 500);
-  }
+  // --- Stream refresh on error ---
+  audio.addEventListener("error", () => {
+    if (!currentTrackUrl || !ws) return;
+    refreshPosition = audio.currentTime;
+    ws.send(JSON.stringify({ type: "stream:refresh" }));
+  });
 
   // --- DJ position heartbeat ---
   let heartbeatInterval = null;
@@ -199,10 +211,8 @@
   function startHeartbeat() {
     stopHeartbeat();
     heartbeatInterval = setInterval(() => {
-      if (!isDj || !widgetReady || !ws) return;
-      widget.getPosition((pos) => {
-        ws.send(JSON.stringify({ type: "dj:position", position: pos }));
-      });
+      if (!isDj || !ws) return;
+      ws.send(JSON.stringify({ type: "dj:position", position: audio.currentTime * 1000 }));
     }, 5000);
   }
 
@@ -222,16 +232,23 @@
   }
 
   function updateListeners(names, count) {
+    currentListenerNames = names || [];
     listenerCount.textContent = count;
+    refreshListenerChips();
+  }
+
+  function refreshListenerChips() {
     listenerList.innerHTML = "";
-    if (names) {
-      names.forEach((name) => {
-        const chip = document.createElement("span");
-        chip.className = "listener-chip";
-        chip.innerHTML = `<span class="dot"></span> ${escapeHtml(name)}`;
-        listenerList.appendChild(chip);
-      });
-    }
+    const currentDj = djName.textContent;
+    currentListenerNames.forEach((name) => {
+      const chip = document.createElement("span");
+      const isDjChip = name === currentDj;
+      chip.className = isDjChip ? "listener-chip dj-chip" : "listener-chip";
+      chip.innerHTML = isDjChip
+        ? `<span class="dot dj"></span> ${escapeHtml(name)} <span class="dj-badge">DJ</span>`
+        : `<span class="dot"></span> ${escapeHtml(name)}`;
+      listenerList.appendChild(chip);
+    });
   }
 
   function escapeHtml(str) {
@@ -239,6 +256,41 @@
     d.textContent = str;
     return d.innerHTML;
   }
+
+  // --- Seek bar ---
+  function formatTime(seconds) {
+    if (!isFinite(seconds)) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  audio.addEventListener("timeupdate", () => {
+    if (isSeeking) return;
+    seekCurrent.textContent = formatTime(audio.currentTime);
+    if (audio.duration) {
+      seekBar.value = audio.currentTime / audio.duration;
+      seekDuration.textContent = formatTime(audio.duration);
+    }
+  });
+
+  audio.addEventListener("loadedmetadata", () => {
+    seekDuration.textContent = formatTime(audio.duration);
+  });
+
+  seekBar.addEventListener("input", () => {
+    isSeeking = true;
+    seekCurrent.textContent = formatTime(seekBar.value * audio.duration);
+  });
+
+  seekBar.addEventListener("change", () => {
+    isSeeking = false;
+    const pos = seekBar.value * audio.duration;
+    audio.currentTime = pos;
+    if (isDj && ws) {
+      ws.send(JSON.stringify({ type: "dj:seek", position: pos * 1000 }));
+    }
+  });
 
   // --- DJ controls ---
   djToggle.addEventListener("click", () => {
@@ -267,19 +319,19 @@
   });
 
   pauseBtn.addEventListener("click", () => {
-    if (!widgetReady) return;
-    widget.getPosition((pos) => {
-      ws.send(JSON.stringify({ type: "dj:pause", position: pos }));
-      widget.pause();
-    });
+    ws.send(JSON.stringify({ type: "dj:pause", position: audio.currentTime * 1000 }));
+    audio.pause();
   });
 
   resumeBtn.addEventListener("click", () => {
-    if (!widgetReady) return;
-    widget.getPosition((pos) => {
-      ws.send(JSON.stringify({ type: "dj:resume", position: pos }));
-      widget.play();
-    });
+    ws.send(JSON.stringify({ type: "dj:resume", position: audio.currentTime * 1000 }));
+    audio.play();
+  });
+
+  // --- Volume control ---
+  volumeSlider.addEventListener("input", () => {
+    audio.volume = parseFloat(volumeSlider.value);
+    localStorage.setItem("vibez:volume", volumeSlider.value);
   });
 
   // Auto-join if name already saved

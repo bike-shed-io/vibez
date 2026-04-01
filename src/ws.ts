@@ -1,6 +1,6 @@
 import type { WSContext } from "hono/ws";
 import { station, getSnapshot, setTrack, claimDj, releaseDj, isDj, listenerNames, listenerCount } from "./station";
-import { fetchTrackMeta } from "./soundcloud";
+import { fetchTrackMeta, resolveStreamUrl } from "./soundcloud";
 
 type Conn = {
   id: string;
@@ -98,8 +98,15 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
         // Proceed without metadata
       }
 
-      setTrack(url, title, artwork);
-      broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork });
+      let streamUrl: string | null = null;
+      try {
+        streamUrl = await resolveStreamUrl(url);
+      } catch (err) {
+        console.error("[ws] resolveStreamUrl failed:", err);
+      }
+
+      setTrack(url, title, artwork, streamUrl);
+      broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
       broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
       break;
     }
@@ -137,6 +144,22 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       break;
     }
 
+    case "stream:refresh": {
+      if (!station.trackUrl) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "No track is loaded" }));
+        break;
+      }
+      try {
+        const freshStreamUrl = await resolveStreamUrl(station.trackUrl);
+        station.streamUrl = freshStreamUrl;
+        conn.ws.send(JSON.stringify({ type: "stream:refreshed", streamUrl: freshStreamUrl }));
+      } catch (err) {
+        console.error("[ws] stream:refresh failed:", err);
+        conn.ws.send(JSON.stringify({ type: "error", message: "Failed to refresh stream URL" }));
+      }
+      break;
+    }
+
     default:
       conn.ws.send(JSON.stringify({ type: "error", message: `Unknown message type: ${msg.type}` }));
   }
@@ -154,8 +177,15 @@ export async function playFromSlack(url: string): Promise<{ title: string | null
     // Proceed without metadata
   }
 
-  setTrack(url, title, artwork);
-  broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork });
+  let streamUrl: string | null = null;
+  try {
+    streamUrl = await resolveStreamUrl(url);
+  } catch (err) {
+    console.error("[ws] resolveStreamUrl failed in playFromSlack:", err);
+  }
+
+  setTrack(url, title, artwork, streamUrl);
+  broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
   broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
   return { title, artwork };
 }

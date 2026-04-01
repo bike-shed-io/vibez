@@ -9,6 +9,7 @@ export type Station = {
   trackUrl: string | null;
   trackTitle: string | null;
   trackArtwork: string | null;
+  streamUrl: string | null;
   isPlaying: boolean;
   position: number;
   positionTimestamp: number;
@@ -21,6 +22,7 @@ export const station: Station = {
   trackUrl: null,
   trackTitle: null,
   trackArtwork: null,
+  streamUrl: null,
   isPlaying: false,
   position: 0,
   positionTimestamp: Date.now(),
@@ -33,6 +35,7 @@ export function getSnapshot() {
     trackUrl: station.trackUrl,
     trackTitle: station.trackTitle,
     trackArtwork: station.trackArtwork,
+    streamUrl: station.streamUrl,
     isPlaying: station.isPlaying,
     position: station.position,
     positionTimestamp: station.positionTimestamp,
@@ -48,10 +51,11 @@ export function listenerCount(): number {
   return station.listeners.size;
 }
 
-export function setTrack(url: string, title: string | null, artwork: string | null) {
+export function setTrack(url: string, title: string | null, artwork: string | null, streamUrl: string | null) {
   station.trackUrl = url;
   station.trackTitle = title;
   station.trackArtwork = artwork;
+  station.streamUrl = streamUrl;
   station.isPlaying = true;
   station.position = 0;
   station.positionTimestamp = Date.now();
@@ -65,7 +69,7 @@ export function claimDj(id: string, name: string) {
 export function releaseDj() {
   station.djId = null;
   station.djName = null;
-  station.isPlaying = false;
+  // Don't clear track/streamUrl so listeners can keep hearing the last track
 }
 
 export function isDj(id: string): boolean {

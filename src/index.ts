@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { basicAuth } from "hono/basic-auth";
 import { createBunWebSocket } from "hono/bun";
 import { handleOpen, handleClose, handleMessage } from "./ws";
 import { startSlack } from "./slack";
@@ -7,6 +8,19 @@ import { startSlack } from "./slack";
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 
 const app = new Hono();
+
+// Optional Basic Auth — protects all routes when AUTH_PASSWORD is set
+// WebSocket upgrades are excluded (the page itself requires auth to load)
+const authPassword = process.env.AUTH_PASSWORD;
+if (authPassword) {
+  const auth = basicAuth({
+    verifyUser: (_username, password) => password === authPassword,
+  });
+  app.use("*", async (c, next) => {
+    if (c.req.header("upgrade") === "websocket") return next();
+    return auth(c, next);
+  });
+}
 
 // WebSocket endpoint
 app.get(
