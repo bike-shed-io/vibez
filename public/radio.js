@@ -6,6 +6,8 @@
   let refreshPosition = 0;
   let isSeeking = false;
   let currentListenerNames = [];
+  let vibezBoost = 0;
+  let vibezMax = 1.0;
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
@@ -36,6 +38,10 @@
   const seekBar = $("seekBar");
   const seekCurrent = $("seekCurrent");
   const seekDuration = $("seekDuration");
+  const vibezSlider = $("vibezSlider");
+  const vibezValue = $("vibezValue");
+  const vibezMaxControl = $("vibezMaxControl");
+  const vibezMaxSlider = $("vibezMaxSlider");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -51,6 +57,14 @@
   } else {
     audio.volume = 0.8;
   }
+
+  const savedVibezMax = localStorage.getItem("vibez:max");
+  if (savedVibezMax !== null) {
+    vibezMax = parseFloat(savedVibezMax);
+    vibezMaxSlider.value = vibezMax;
+  }
+
+  applyVolume();
 
   // --- Join ---
   function join() {
@@ -102,6 +116,11 @@
             playAt(msg.position, msg.positionTimestamp);
           }
         }
+        if (msg.vibezBoost > 0) {
+          vibezBoost = msg.vibezBoost;
+          if (!isDj) vibezMaxControl.classList.remove("hidden");
+        }
+        applyVolume();
         break;
 
       case "track":
@@ -123,10 +142,27 @@
       case "dj:changed":
         updateDj(msg.djName);
         refreshListenerChips();
+        if (!msg.djName) {
+          vibezBoost = 0;
+          vibezMaxControl.classList.add("hidden");
+          applyVolume();
+        }
         break;
 
       case "listeners":
         updateListeners(msg.names, msg.count);
+        break;
+
+      case "vibez":
+        vibezBoost = msg.boost;
+        if (!isDj) {
+          if (vibezBoost > 0) {
+            vibezMaxControl.classList.remove("hidden");
+          } else {
+            vibezMaxControl.classList.add("hidden");
+          }
+        }
+        applyVolume();
         break;
 
       case "stream:refreshed":
@@ -300,6 +336,7 @@
       djToggle.textContent = "Stop DJing";
       djToggle.className = "btn-danger";
       djControls.classList.remove("hidden");
+      vibezMaxControl.classList.add("hidden");
       startHeartbeat();
     } else {
       ws.send(JSON.stringify({ type: "dj:release" }));
@@ -307,6 +344,10 @@
       djToggle.textContent = "Become DJ";
       djToggle.className = "btn-secondary";
       djControls.classList.add("hidden");
+      vibezSlider.value = 0;
+      vibezValue.textContent = "0%";
+      // Now a listener again — show range if vibez still active
+      if (vibezBoost > 0) vibezMaxControl.classList.remove("hidden");
       stopHeartbeat();
     }
   });
@@ -329,9 +370,74 @@
   });
 
   // --- Volume control ---
+  function applyVolume() {
+    const base = parseFloat(volumeSlider.value);
+    const effective = base === 0 ? 0 : Math.min(base + vibezBoost, vibezMax, 1.0);
+    audio.volume = Math.max(0, Math.min(1, effective));
+    updateVolumeTrackVisual(base);
+  }
+
+  function updateVolumeTrackVisual(base) {
+    const basePct = (base * 100).toFixed(1);
+
+    if (vibezBoost === 0) {
+      volumeSlider.style.background =
+        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--border) ${basePct}%, var(--border) 100%)`;
+      return;
+    }
+
+    const uncapped = base + vibezBoost;
+    const effective = Math.min(uncapped, vibezMax, 1.0);
+    const effectivePct = (effective * 100).toFixed(1);
+    const isCapped = uncapped > vibezMax;
+
+    if (isCapped) {
+      // Boost hits the ceiling — green up to max, red beyond
+      const maxPct = (Math.min(vibezMax, 1.0) * 100).toFixed(1);
+      const uncappedPct = (Math.min(uncapped, 1.0) * 100).toFixed(1);
+      volumeSlider.style.background =
+        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--success) ${basePct}%, var(--success) ${maxPct}%, var(--danger) ${maxPct}%, var(--danger) ${uncappedPct}%, var(--border) ${uncappedPct}%, var(--border) 100%)`;
+    } else {
+      // Boost within ceiling — green for boost, dim hint showing headroom to max
+      const maxPct = (Math.min(vibezMax, 1.0) * 100).toFixed(1);
+      volumeSlider.style.background =
+        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--success) ${basePct}%, var(--success) ${effectivePct}%, rgba(0,200,83,0.15) ${effectivePct}%, rgba(0,200,83,0.15) ${maxPct}%, var(--border) ${maxPct}%, var(--border) 100%)`;
+    }
+  }
+
   volumeSlider.addEventListener("input", () => {
-    audio.volume = parseFloat(volumeSlider.value);
     localStorage.setItem("vibez:volume", volumeSlider.value);
+    applyVolume();
+  });
+
+  vibezMaxSlider.addEventListener("input", () => {
+    vibezMax = parseFloat(vibezMaxSlider.value);
+    localStorage.setItem("vibez:max", String(vibezMax));
+    applyVolume();
+  });
+
+  let lastVibezSent = 0;
+  function updateVibezSliderVisual() {
+    const boost = parseFloat(vibezSlider.value);
+    const pct = (boost * 100).toFixed(1);
+    vibezSlider.style.background =
+      `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+  }
+  vibezSlider.addEventListener("input", () => {
+    const boost = parseFloat(vibezSlider.value);
+    vibezBoost = boost;
+    vibezValue.textContent = Math.round(boost * 100) + "%";
+    updateVibezSliderVisual();
+    applyVolume();
+    const now = Date.now();
+    if (now - lastVibezSent > 50) {
+      lastVibezSent = now;
+      if (ws) ws.send(JSON.stringify({ type: "vibez:boost", boost }));
+    }
+  });
+  vibezSlider.addEventListener("change", () => {
+    const boost = parseFloat(vibezSlider.value);
+    if (ws) ws.send(JSON.stringify({ type: "vibez:boost", boost }));
   });
 
   // Auto-join if name already saved

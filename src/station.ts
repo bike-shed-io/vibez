@@ -13,6 +13,7 @@ export type Station = {
   isPlaying: boolean;
   position: number;
   positionTimestamp: number;
+  vibezBoost: number;
   listeners: Map<string, Listener>;
 };
 
@@ -26,6 +27,7 @@ export const station: Station = {
   isPlaying: false,
   position: 0,
   positionTimestamp: Date.now(),
+  vibezBoost: 0,
   listeners: new Map(),
 };
 
@@ -39,6 +41,7 @@ export function getSnapshot() {
     isPlaying: station.isPlaying,
     position: station.position,
     positionTimestamp: station.positionTimestamp,
+    vibezBoost: station.vibezBoost,
     listeners: listenerNames(),
   };
 }
@@ -69,6 +72,7 @@ export function claimDj(id: string, name: string) {
 export function releaseDj() {
   station.djId = null;
   station.djName = null;
+  station.vibezBoost = 0;
   // Don't clear track/streamUrl so listeners can keep hearing the last track
 }
 

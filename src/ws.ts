@@ -38,6 +38,7 @@ export function handleClose(id: string) {
   if (isDj(id)) {
     releaseDj();
     broadcast({ type: "dj:changed", djName: null });
+    broadcast({ type: "vibez", boost: 0 });
   }
 
   broadcastListeners();
@@ -80,6 +81,15 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       if (!isDj(id)) return;
       releaseDj();
       broadcast({ type: "dj:changed", djName: null });
+      broadcast({ type: "vibez", boost: 0 });
+      break;
+    }
+
+    case "vibez:boost": {
+      if (!isDj(id)) return;
+      const boost = Math.max(0, Math.min(1, Number(msg.boost ?? 0)));
+      station.vibezBoost = boost;
+      broadcast({ type: "vibez", boost });
       break;
     }
 

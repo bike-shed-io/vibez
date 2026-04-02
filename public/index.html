@@ -50,6 +50,10 @@
           <span class="volume-icon" id="volumeIcon">&#x1f50a;</span>
           <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.8" />
         </div>
+        <div class="vibez-max-control hidden" id="vibezMaxControl">
+          <span class="vibez-max-label">vibez max</span>
+          <input type="range" id="vibezMaxSlider" min="0" max="1" step="0.01" value="1" />
+        </div>
       </div>
       <div id="autoplayPrompt" class="autoplay-prompt hidden">
         <button class="btn-primary" id="autoplayBtn">Click to listen</button>
@@ -66,6 +70,11 @@
 
     <!-- DJ Controls (only visible when DJ) -->
     <div class="dj-controls hidden" id="djControls">
+      <div class="vibez-control">
+        <span class="vibez-label">VIBEZ</span>
+        <input type="range" id="vibezSlider" min="0" max="1" step="0.01" value="0" />
+        <span class="vibez-value" id="vibezValue">0%</span>
+      </div>
       <div class="url-row">
         <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud URL..." />
         <button class="btn-primary" id="playBtn">Play</button>

@@ -45,7 +45,7 @@ app.get(
 app.use("/*", serveStatic({ root: "./public" }));
 
 // Start
-const port = Number(process.env.PORT) || 3000;
+const port = Number(process.env.PORT) || 3005;
 
 startSlack().catch((err) => {
   console.error("[slack] Failed to start Slack bot:", err.message);
