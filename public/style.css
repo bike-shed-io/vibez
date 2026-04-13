@@ -13,8 +13,11 @@
   --text-dim: #adadb8;
   --accent: #f45d22;
   --accent-hover: #ff7a3d;
+  --cool: #5ea8ff;
   --danger: #eb4034;
   --success: #00c853;
+  --cool-soft: rgba(94, 168, 255, 0.18);
+  --warm-soft: rgba(244, 93, 34, 0.18);
 }
 
 body {
@@ -215,12 +218,56 @@ button:active {
 }
 
 /* Volume control */
+.listener-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.listener-control-card {
+  padding: 0.9rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.control-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.control-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.control-copy {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.control-value {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .volume-control {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 1rem;
-  padding: 0 0.25rem;
+  padding: 0 0.1rem;
 }
 
 .volume-icon {
@@ -327,35 +374,37 @@ button:active {
 /* Vibez control (DJ) */
 .vibez-control {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.75rem;
-  padding: 0.85rem 1rem;
+  padding: 1rem;
   background: linear-gradient(135deg, rgba(244, 93, 34, 0.08), rgba(244, 93, 34, 0.03));
   border-radius: 8px;
   border: 1px solid var(--accent);
   box-shadow: 0 0 12px rgba(244, 93, 34, 0.15);
 }
 
-.vibez-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+.vibez-title {
   color: var(--accent);
-  flex-shrink: 0;
 }
 
 .vibez-value {
-  font-size: 0.8rem;
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  min-width: 3ch;
+  min-width: 6.5rem;
   text-align: right;
-  flex-shrink: 0;
+}
+
+.vibez-value[data-tone="lower"] {
+  color: var(--cool);
+}
+
+.vibez-value[data-tone="lift"] {
+  color: var(--accent);
+}
+
+.vibez-value[data-tone="neutral"] {
+  color: var(--text);
 }
 
 .vibez-control input[type="range"] {
-  flex: 1;
   height: 6px;
   -webkit-appearance: none;
   appearance: none;
@@ -385,51 +434,126 @@ button:active {
   cursor: pointer;
 }
 
-/* Vibez max (listener) */
-.vibez-max-control {
+.vibez-scale {
   display: flex;
-  align-items: center;
+  justify-content: space-between;
   gap: 0.75rem;
-  margin-top: 0.4rem;
-  padding: 0 0.25rem;
-}
-
-.vibez-max-label {
-  font-size: 0.65rem;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-dim);
-  flex-shrink: 0;
-  min-width: 5.5em;
 }
 
-.vibez-max-control input[type="range"] {
-  flex: 1;
-  height: 3px;
+.vibez-range-control {
+  background: linear-gradient(180deg, rgba(94, 168, 255, 0.08), rgba(244, 93, 34, 0.04));
+}
+
+.vibez-range-control input[type="range"] {
+  width: 100%;
+  height: 5px;
   -webkit-appearance: none;
   appearance: none;
   background: var(--border);
-  border-radius: 2px;
+  border-radius: 999px;
   outline: none;
   cursor: pointer;
 }
 
-.vibez-max-control input[type="range"]::-webkit-slider-thumb {
+.vibez-range-control input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 10px;
-  height: 10px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--danger);
+  background: var(--text);
+  border: 2px solid var(--bg);
   cursor: pointer;
 }
 
-.vibez-max-control input[type="range"]::-moz-range-thumb {
-  width: 10px;
-  height: 10px;
+.vibez-range-control input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--danger);
-  border: none;
+  background: var(--text);
+  border: 2px solid var(--bg);
   cursor: pointer;
+}
+
+.vibez-window {
+  margin-top: 0.85rem;
+}
+
+.vibez-window-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.vibez-window-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cool-soft), rgba(239, 239, 241, 0.2), var(--warm-soft));
+}
+
+.vibez-window-base,
+.vibez-window-live {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 2px rgba(14, 14, 16, 0.35);
+}
+
+.vibez-window-base {
+  background: var(--text);
+  z-index: 2;
+}
+
+.vibez-window-live {
+  background: var(--text);
+  z-index: 3;
+}
+
+.vibez-window-live[data-tone="lower"] {
+  background: var(--cool);
+}
+
+.vibez-window-live[data-tone="lift"] {
+  background: var(--accent);
+}
+
+.vibez-window-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+#vibezLive {
+  flex: 1;
+  text-align: center;
+}
+
+#vibezLive[data-tone="lower"] {
+  color: var(--cool);
+}
+
+#vibezLive[data-tone="lift"] {
+  color: var(--accent);
+}
+
+#vibezLive[data-tone="neutral"] {
+  color: var(--text);
 }
 
 /* DJ toggle */
@@ -503,6 +627,15 @@ button:active {
 @media (max-width: 480px) {
   .container {
     padding: 1rem;
+  }
+
+  .control-head {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .control-value {
+    align-self: flex-start;
   }
 
   .dj-controls .url-row {

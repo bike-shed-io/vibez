@@ -87,7 +87,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "vibez:boost": {
       if (!isDj(id)) return;
-      const boost = Math.max(0, Math.min(1, Number(msg.boost ?? 0)));
+      const boost = Math.max(-1, Math.min(1, Number(msg.boost ?? 0)));
       station.vibezBoost = boost;
       broadcast({ type: "vibez", boost });
       break;

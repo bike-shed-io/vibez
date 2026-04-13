@@ -6,8 +6,8 @@
   let refreshPosition = 0;
   let isSeeking = false;
   let currentListenerNames = [];
-  let vibezBoost = 0;
-  let vibezMax = 1.0;
+  let vibezLevel = 0;
+  let vibezRange = 0.2;
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
@@ -31,6 +31,7 @@
   const listenerCount = $("listenerCount");
   const listenerList = $("listenerList");
   const audio = $("audioPlayer");
+  const volumeValue = $("volumeValue");
   const volumeSlider = $("volumeSlider");
   const volumeIcon = $("volumeIcon");
   const autoplayPrompt = $("autoplayPrompt");
@@ -40,8 +41,14 @@
   const seekDuration = $("seekDuration");
   const vibezSlider = $("vibezSlider");
   const vibezValue = $("vibezValue");
-  const vibezMaxControl = $("vibezMaxControl");
-  const vibezMaxSlider = $("vibezMaxSlider");
+  const vibezRangeSlider = $("vibezRangeSlider");
+  const vibezRangeValue = $("vibezRangeValue");
+  const vibezWindowBand = $("vibezWindowBand");
+  const vibezWindowBase = $("vibezWindowBase");
+  const vibezWindowLive = $("vibezWindowLive");
+  const vibezFloor = $("vibezFloor");
+  const vibezLive = $("vibezLive");
+  const vibezCeiling = $("vibezCeiling");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -58,12 +65,20 @@
     audio.volume = 0.8;
   }
 
-  const savedVibezMax = localStorage.getItem("vibez:max");
-  if (savedVibezMax !== null) {
-    vibezMax = parseFloat(savedVibezMax);
-    vibezMaxSlider.value = vibezMax;
+  const savedVibezRange = localStorage.getItem("vibez:range");
+  if (savedVibezRange !== null) {
+    vibezRange = clampUnit(savedVibezRange);
+  } else {
+    const legacyMax = localStorage.getItem("vibez:max");
+    if (legacyMax !== null) {
+      vibezRange = Math.max(0, clampUnit(legacyMax) - clampUnit(volumeSlider.value));
+      localStorage.setItem("vibez:range", String(vibezRange));
+      localStorage.removeItem("vibez:max");
+    }
   }
+  vibezRangeSlider.value = String(vibezRange);
 
+  updateVibezSliderVisual();
   applyVolume();
 
   // --- Join ---
@@ -116,10 +131,7 @@
             playAt(msg.position, msg.positionTimestamp);
           }
         }
-        if (msg.vibezBoost > 0) {
-          vibezBoost = msg.vibezBoost;
-          if (!isDj) vibezMaxControl.classList.remove("hidden");
-        }
+        vibezLevel = clampSigned(msg.vibezBoost ?? 0);
         applyVolume();
         break;
 
@@ -143,8 +155,7 @@
         updateDj(msg.djName);
         refreshListenerChips();
         if (!msg.djName) {
-          vibezBoost = 0;
-          vibezMaxControl.classList.add("hidden");
+          vibezLevel = 0;
           applyVolume();
         }
         break;
@@ -154,14 +165,7 @@
         break;
 
       case "vibez":
-        vibezBoost = msg.boost;
-        if (!isDj) {
-          if (vibezBoost > 0) {
-            vibezMaxControl.classList.remove("hidden");
-          } else {
-            vibezMaxControl.classList.add("hidden");
-          }
-        }
+        vibezLevel = clampSigned(msg.boost ?? 0);
         applyVolume();
         break;
 
@@ -336,7 +340,6 @@
       djToggle.textContent = "Stop DJing";
       djToggle.className = "btn-danger";
       djControls.classList.remove("hidden");
-      vibezMaxControl.classList.add("hidden");
       startHeartbeat();
     } else {
       ws.send(JSON.stringify({ type: "dj:release" }));
@@ -345,9 +348,10 @@
       djToggle.className = "btn-secondary";
       djControls.classList.add("hidden");
       vibezSlider.value = 0;
-      vibezValue.textContent = "0%";
-      // Now a listener again — show range if vibez still active
-      if (vibezBoost > 0) vibezMaxControl.classList.remove("hidden");
+      vibezLevel = 0;
+      updateVibezSliderVisual();
+      updateVibezTone();
+      applyVolume();
       stopHeartbeat();
     }
   });
@@ -370,39 +374,99 @@
   });
 
   // --- Volume control ---
+  function clampUnit(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.max(0, Math.min(1, number));
+  }
+
+  function clampSigned(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.max(-1, Math.min(1, number));
+  }
+
+  function percentText(value) {
+    return `${Math.round(clampUnit(value) * 100)}%`;
+  }
+
+  function formatVibezLevel(value) {
+    const level = clampSigned(value);
+    const pct = Math.round(Math.abs(level) * 100);
+    if (pct === 0) return "Neutral";
+    return level < 0 ? `Lower ${pct}%` : `Lift +${pct}%`;
+  }
+
+  function vibezTone(value) {
+    if (value < -0.001) return "lower";
+    if (value > 0.001) return "lift";
+    return "neutral";
+  }
+
+  function rangeBounds(base) {
+    if (base === 0) {
+      return { floor: 0, ceiling: 0 };
+    }
+    return {
+      floor: clampUnit(base - vibezRange),
+      ceiling: clampUnit(base + vibezRange),
+    };
+  }
+
+  function effectiveVolume(base) {
+    if (base === 0) return 0;
+    return clampUnit(base + vibezLevel * vibezRange);
+  }
+
+  function setMarkerPosition(el, value) {
+    el.style.left = `${clampUnit(value) * 100}%`;
+  }
+
   function applyVolume() {
-    const base = parseFloat(volumeSlider.value);
-    const effective = base === 0 ? 0 : Math.min(base + vibezBoost, vibezMax, 1.0);
-    audio.volume = Math.max(0, Math.min(1, effective));
+    const base = clampUnit(volumeSlider.value);
+    const live = effectiveVolume(base);
+    audio.volume = live;
     updateVolumeTrackVisual(base);
+    updateRangeTrackVisual();
+    updateVibezTone();
+    updateRangeWindow(base, live);
   }
 
   function updateVolumeTrackVisual(base) {
     const basePct = (base * 100).toFixed(1);
+    volumeSlider.style.background =
+      `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--border) ${basePct}%, var(--border) 100%)`;
+  }
 
-    if (vibezBoost === 0) {
-      volumeSlider.style.background =
-        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--border) ${basePct}%, var(--border) 100%)`;
-      return;
-    }
+  function updateRangeTrackVisual() {
+    const rangePct = (vibezRange * 100).toFixed(1);
+    vibezRangeSlider.style.background =
+      `linear-gradient(to right, var(--text) 0%, var(--text) ${rangePct}%, var(--border) ${rangePct}%, var(--border) 100%)`;
+  }
 
-    const uncapped = base + vibezBoost;
-    const effective = Math.min(uncapped, vibezMax, 1.0);
-    const effectivePct = (effective * 100).toFixed(1);
-    const isCapped = uncapped > vibezMax;
+  function updateRangeWindow(base, live) {
+    const { floor, ceiling } = rangeBounds(base);
+    const bandLeft = floor * 100;
+    const bandWidth = Math.max((ceiling - floor) * 100, 0);
 
-    if (isCapped) {
-      // Boost hits the ceiling — green up to max, red beyond
-      const maxPct = (Math.min(vibezMax, 1.0) * 100).toFixed(1);
-      const uncappedPct = (Math.min(uncapped, 1.0) * 100).toFixed(1);
-      volumeSlider.style.background =
-        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--success) ${basePct}%, var(--success) ${maxPct}%, var(--danger) ${maxPct}%, var(--danger) ${uncappedPct}%, var(--border) ${uncappedPct}%, var(--border) 100%)`;
-    } else {
-      // Boost within ceiling — green for boost, dim hint showing headroom to max
-      const maxPct = (Math.min(vibezMax, 1.0) * 100).toFixed(1);
-      volumeSlider.style.background =
-        `linear-gradient(to right, var(--accent) 0%, var(--accent) ${basePct}%, var(--success) ${basePct}%, var(--success) ${effectivePct}%, rgba(0,200,83,0.15) ${effectivePct}%, rgba(0,200,83,0.15) ${maxPct}%, var(--border) ${maxPct}%, var(--border) 100%)`;
-    }
+    volumeValue.textContent = percentText(base);
+    vibezRangeValue.textContent = `+/- ${Math.round(vibezRange * 100)}%`;
+    vibezFloor.textContent = percentText(floor);
+    vibezLive.textContent = `Live ${percentText(live)}`;
+    vibezCeiling.textContent = percentText(ceiling);
+
+    vibezWindowBand.style.left = `${bandLeft}%`;
+    vibezWindowBand.style.width = `${bandWidth}%`;
+    setMarkerPosition(vibezWindowBase, base);
+    setMarkerPosition(vibezWindowLive, live);
+  }
+
+  function updateVibezTone() {
+    const tone = vibezTone(vibezLevel);
+    vibezValue.textContent = formatVibezLevel(vibezLevel);
+    vibezValue.dataset.tone = tone;
+    vibezWindowLive.dataset.tone = tone;
+    vibezLive.dataset.tone = tone;
   }
 
   volumeSlider.addEventListener("input", () => {
@@ -410,23 +474,36 @@
     applyVolume();
   });
 
-  vibezMaxSlider.addEventListener("input", () => {
-    vibezMax = parseFloat(vibezMaxSlider.value);
-    localStorage.setItem("vibez:max", String(vibezMax));
+  vibezRangeSlider.addEventListener("input", () => {
+    vibezRange = clampUnit(vibezRangeSlider.value);
+    localStorage.setItem("vibez:range", String(vibezRange));
     applyVolume();
   });
 
   let lastVibezSent = 0;
   function updateVibezSliderVisual() {
-    const boost = parseFloat(vibezSlider.value);
-    const pct = (boost * 100).toFixed(1);
+    const level = clampSigned(vibezSlider.value);
+    const pct = (((level + 1) / 2) * 100).toFixed(1);
+    const center = "50%";
+
+    if (Math.abs(level) < 0.001) {
+      vibezSlider.style.background =
+        "linear-gradient(to right, var(--cool-soft) 0%, var(--cool-soft) 50%, var(--warm-soft) 50%, var(--warm-soft) 100%)";
+      return;
+    }
+
+    if (level < 0) {
+      vibezSlider.style.background =
+        `linear-gradient(to right, var(--cool-soft) 0%, var(--cool-soft) ${pct}%, var(--cool) ${pct}%, var(--cool) ${center}, var(--warm-soft) ${center}, var(--warm-soft) 100%)`;
+      return;
+    }
+
     vibezSlider.style.background =
-      `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--border) ${pct}%, var(--border) 100%)`;
+      `linear-gradient(to right, var(--cool-soft) 0%, var(--cool-soft) ${center}, var(--accent) ${center}, var(--accent) ${pct}%, var(--warm-soft) ${pct}%, var(--warm-soft) 100%)`;
   }
   vibezSlider.addEventListener("input", () => {
-    const boost = parseFloat(vibezSlider.value);
-    vibezBoost = boost;
-    vibezValue.textContent = Math.round(boost * 100) + "%";
+    const boost = clampSigned(vibezSlider.value);
+    vibezLevel = boost;
     updateVibezSliderVisual();
     applyVolume();
     const now = Date.now();
@@ -436,7 +513,7 @@
     }
   });
   vibezSlider.addEventListener("change", () => {
-    const boost = parseFloat(vibezSlider.value);
+    const boost = clampSigned(vibezSlider.value);
     if (ws) ws.send(JSON.stringify({ type: "vibez:boost", boost }));
   });
 
