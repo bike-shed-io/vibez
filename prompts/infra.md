@@ -2,6 +2,30 @@
 
 You are setting up the first-ever deployment of vibez to a shared Hetzner server. This has never been deployed before — there's no old server, no data to migrate.
 
+## Secrets management
+
+All secrets are stored in **1Password** (vault: `infra`, item: `vibez`) and injected at deploy time. No plaintext secrets are committed to the repo.
+
+| Secret | 1Password reference | Used by |
+|--------|---------------------|---------|
+| Auth password | `op://infra/vibez/auth-password` | Basic auth for web UI |
+| Slack bot token | `op://infra/vibez/slack-bot-token` | Slack bot (Socket Mode) |
+| Slack app token | `op://infra/vibez/slack-app-token` | Slack bot (Socket Mode) |
+| SoundCloud client ID | `op://infra/vibez/soundcloud-client-id` | SoundCloud streaming |
+| SSH deploy key (private) | Document: `SSH deploy_vibez_ed25519 (private)` | SSH to server |
+| SSH deploy key (public) | Document: `SSH deploy_vibez_ed25519 (public)` | Authorized on server |
+
+**How it works:**
+- `env/prod.env.tpl` contains `{{ op://... }}` references (committed, no secrets)
+- `make deploy` runs `op inject` to generate `env/prod.env` from the template, then deploys
+- `make env` generates `env/prod.env` without deploying
+- SSH key is auto-fetched from 1Password if missing locally
+
+**To add a new secret:**
+1. Add field to `op://infra/vibez` item in 1Password
+2. Add `{{ op://infra/vibez/field-name }}` to `env/prod.env.tpl`
+3. Reference it as `process.env.FIELD_NAME` in code
+
 ## What this app is
 
 A "Team Radio" — a synchronized music listening app for pair programming. A Bun + Hono web server that serves a static frontend and a WebSocket endpoint for real-time sync between listeners. It also runs a Slack bot (Socket Mode) for `/radio` commands. Single process, single port.
@@ -14,7 +38,7 @@ A "Team Radio" — a synchronized music listening app for pair programming. A Bu
 | Architecture | x86_64 (Fedora 42) |
 | Runtime | **Podman** (rootless, per-user) |
 | SSH user | **vibez** (no sudo) |
-| SSH key | **~/.ssh/deploy_vibez_ed25519** |
+| SSH key | **~/.ssh/deploy_vibez_ed25519** (auto-fetched from 1Password if missing) |
 | Home dir | `/home/vibez/` |
 | App port | **3005** (bind `127.0.0.1:3005`) |
 | Domain | **vibez.bike-shed.io** (HTTPS via Nginx reverse proxy) |
@@ -44,7 +68,8 @@ These files already exist in the repo:
 | `Dockerfile` | Two-stage Bun build, runs as non-root `bun` user, exposes 3005 |
 | `docker-compose.prod.yml` | Pre-built `vibez:local` image, binds `127.0.0.1:3005`, reads `prod.env` |
 | `scripts/deploy.sh` | rsync source → podman build → podman compose up |
-| `env/prod.env.example` | Template: PORT, RADIO_URL, Slack tokens |
+| `env/prod.env.tpl` | 1Password inject template (`op://` references) |
+| `env/prod.env.example` | Human-readable reference for env vars |
 | `Makefile` | `make dev` / `make deploy` |
 | `.dockerignore` | Keeps image lean |
 
@@ -95,8 +120,8 @@ All infra is live. You're clear to deploy.
 
 ### Your next steps (vibez agent)
 
-1. `cp env/prod.env.example env/prod.env` — fill in real Slack tokens
-2. `make deploy`
+1. Ensure 1Password CLI (`op`) is authenticated
+2. `make deploy` (auto-injects secrets from 1Password, deploys)
 3. Verify: `curl -sf https://vibez.bike-shed.io/ && echo "OK"`
 
 ---
