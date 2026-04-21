@@ -1,0 +1,23 @@
+name: VibezMac
+options:
+  minimumXcodeGenVersion: 2.45.0
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: io.bike-shed.vibez.mac
+    PRODUCT_NAME: Vibez
+    SWIFT_VERSION: 6.0
+targets:
+  VibezMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - Sources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: vibez
+        INFOPLIST_KEY_LSUIElement: YES
+        CODE_SIGN_STYLE: Automatic
+    dependencies:
+      - sdk: WebKit.framework

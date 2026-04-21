@@ -92,18 +92,12 @@
       </div>
     </div>
 
-    <!-- DJ section -->
-    <div class="dj-section">
-      <button class="btn-secondary" id="djToggle">Become DJ</button>
-    </div>
-
-    <!-- DJ Controls (only visible when DJ) -->
-    <div class="dj-controls hidden" id="djControls">
+    <div class="room-vibez-section">
       <div class="vibez-control">
         <div class="control-head">
           <div>
-            <div class="control-title vibez-title">Vibez</div>
-            <div class="control-copy">Shift everyone inside the range they allow.</div>
+            <div class="control-title vibez-title">Room Vibez</div>
+            <div class="control-copy">Collaborative control: any listener can shift the room inside each person's range.</div>
           </div>
           <span class="control-value vibez-value" id="vibezValue" data-tone="neutral">Neutral</span>
         </div>
@@ -114,6 +108,15 @@
           <span>Lift</span>
         </div>
       </div>
+    </div>
+
+    <!-- DJ section -->
+    <div class="dj-section">
+      <button class="btn-secondary" id="djToggle">Become DJ</button>
+    </div>
+
+    <!-- DJ Controls (only visible when DJ) -->
+    <div class="dj-controls hidden" id="djControls">
       <div class="url-row">
         <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud URL..." />
         <button class="btn-primary" id="playBtn">Play</button>

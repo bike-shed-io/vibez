@@ -131,8 +131,7 @@
             playAt(msg.position, msg.positionTimestamp);
           }
         }
-        vibezLevel = clampSigned(msg.vibezBoost ?? 0);
-        applyVolume();
+        setVibezLevelFromRoom(msg.vibezBoost ?? 0);
         break;
 
       case "track":
@@ -154,10 +153,6 @@
       case "dj:changed":
         updateDj(msg.djName);
         refreshListenerChips();
-        if (!msg.djName) {
-          vibezLevel = 0;
-          applyVolume();
-        }
         break;
 
       case "listeners":
@@ -165,8 +160,7 @@
         break;
 
       case "vibez":
-        vibezLevel = clampSigned(msg.boost ?? 0);
-        applyVolume();
+        setVibezLevelFromRoom(msg.boost ?? 0);
         break;
 
       case "stream:refreshed":
@@ -347,11 +341,6 @@
       djToggle.textContent = "Become DJ";
       djToggle.className = "btn-secondary";
       djControls.classList.add("hidden");
-      vibezSlider.value = 0;
-      vibezLevel = 0;
-      updateVibezSliderVisual();
-      updateVibezTone();
-      applyVolume();
       stopHeartbeat();
     }
   });
@@ -430,6 +419,13 @@
     updateRangeTrackVisual();
     updateVibezTone();
     updateRangeWindow(base, live);
+  }
+
+  function setVibezLevelFromRoom(value) {
+    vibezLevel = clampSigned(value);
+    vibezSlider.value = String(vibezLevel);
+    updateVibezSliderVisual();
+    applyVolume();
   }
 
   function updateVolumeTrackVisual(base) {
