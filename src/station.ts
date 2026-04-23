@@ -6,6 +6,7 @@ export type Listener = {
 export type Station = {
   djId: string | null;
   djName: string | null;
+  djHeartbeatAt: number;
   trackUrl: string | null;
   trackTitle: string | null;
   trackArtwork: string | null;
@@ -20,6 +21,7 @@ export type Station = {
 export const station: Station = {
   djId: null,
   djName: null,
+  djHeartbeatAt: 0,
   trackUrl: null,
   trackTitle: null,
   trackArtwork: null,
@@ -67,13 +69,17 @@ export function setTrack(url: string, title: string | null, artwork: string | nu
 export function claimDj(id: string, name: string) {
   station.djId = id;
   station.djName = name;
+  station.djHeartbeatAt = Date.now();
 }
 
 export function releaseDj() {
   station.djId = null;
   station.djName = null;
-  station.vibezBoost = 0;
   // Don't clear track/streamUrl so listeners can keep hearing the last track
+}
+
+export function touchDjHeartbeat() {
+  station.djHeartbeatAt = Date.now();
 }
 
 export function isDj(id: string): boolean {

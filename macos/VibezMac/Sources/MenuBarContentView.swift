@@ -9,7 +9,8 @@ struct MenuBarContentView: View {
   @State private var isEditingSeek = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
       HStack(alignment: .center, spacing: 10) {
         Circle()
           .fill(statusColor)
@@ -141,7 +142,7 @@ struct MenuBarContentView: View {
               }
             }
           )
-          .disabled(!appModel.hasTrack)
+          .disabled(!appModel.isRoomConnected || !appModel.hasTrack)
         }
 
         Divider()
@@ -205,6 +206,7 @@ struct MenuBarContentView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
+          .disabled(!appModel.isRoomConnected)
 
           Button {
             appModel.playTrackDraft()
@@ -213,12 +215,12 @@ struct MenuBarContentView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
-          .disabled(!appModel.isDJ || appModel.trackDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(!appModel.isRoomConnected || !appModel.isDJ || appModel.trackDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
 
         TextField("SoundCloud URL…", text: $appModel.trackDraftURL)
           .textFieldStyle(.roundedBorder)
-          .disabled(!appModel.isDJ)
+          .disabled(!appModel.isRoomConnected || !appModel.isDJ)
 
         HStack(spacing: 10) {
           Button {
@@ -232,7 +234,7 @@ struct MenuBarContentView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
-          .disabled(!appModel.isDJ || !appModel.hasTrack)
+          .disabled(!appModel.isRoomConnected || !appModel.isDJ || !appModel.hasTrack)
 
           Button {
             appModel.seek(to: 0)
@@ -241,7 +243,7 @@ struct MenuBarContentView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
-          .disabled(!appModel.isDJ || !appModel.hasTrack)
+          .disabled(!appModel.isRoomConnected || !appModel.isDJ || !appModel.hasTrack)
         }
 
         VStack(alignment: .leading, spacing: 8) {
@@ -257,6 +259,7 @@ struct MenuBarContentView: View {
           }
 
           Slider(value: vibezBinding, in: -1...1)
+            .disabled(!appModel.isRoomConnected)
 
           HStack {
             Text("Lower")
@@ -309,9 +312,11 @@ struct MenuBarContentView: View {
         }
         .buttonStyle(.bordered)
       }
+      }
+      .padding(16)
     }
-    .padding(16)
     .frame(width: 370)
+    .frame(maxHeight: 640)
   }
 
   private var artworkPlaceholder: some View {

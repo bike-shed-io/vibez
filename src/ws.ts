@@ -1,5 +1,5 @@
 import type { WSContext } from "hono/ws";
-import { station, getSnapshot, setTrack, claimDj, releaseDj, isDj, listenerNames, listenerCount } from "./station";
+import { station, getSnapshot, setTrack, claimDj, releaseDj, isDj, listenerNames, listenerCount, touchDjHeartbeat } from "./station";
 import { fetchTrackMeta, resolveStreamUrl } from "./soundcloud";
 
 type Conn = {
@@ -9,6 +9,13 @@ type Conn = {
 };
 
 const connections = new Map<string, Conn>();
+const DJ_HEARTBEAT_TIMEOUT_MS = 20_000;
+
+function djLeaseIsStale() {
+  if (!station.djId) return false;
+  if (!station.djHeartbeatAt) return true;
+  return Date.now() - station.djHeartbeatAt > DJ_HEARTBEAT_TIMEOUT_MS;
+}
 
 function broadcast(msg: object, exclude?: string) {
   const data = JSON.stringify(msg);
@@ -67,8 +74,12 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:claim": {
       if (station.djId && station.djId !== id) {
-        conn.ws.send(JSON.stringify({ type: "error", message: `${station.djName} is already DJing` }));
-        return;
+        const djStillPresent = station.listeners.has(station.djId);
+        if (djStillPresent && !djLeaseIsStale()) {
+          conn.ws.send(JSON.stringify({ type: "error", message: `${station.djName} is already DJing` }));
+          return;
+        }
+        releaseDj();
       }
       const name = conn.name;
       claimDj(id, name);
@@ -93,6 +104,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:play": {
       if (!isDj(id)) return;
+      touchDjHeartbeat();
       const url = String(msg.url || "");
       if (!url) return;
 
@@ -121,6 +133,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:pause": {
       if (!isDj(id)) return;
+      touchDjHeartbeat();
       station.isPlaying = false;
       station.position = Number(msg.position ?? station.position);
       broadcast({ type: "pause", position: station.position }, id);
@@ -129,6 +142,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:resume": {
       if (!isDj(id)) return;
+      touchDjHeartbeat();
       station.isPlaying = true;
       station.position = Number(msg.position ?? station.position);
       station.positionTimestamp = Date.now();
@@ -138,6 +152,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:seek": {
       if (!isDj(id)) return;
+      touchDjHeartbeat();
       station.position = Number(msg.position ?? 0);
       station.positionTimestamp = Date.now();
       broadcast({ type: "seek", position: station.position, timestamp: station.positionTimestamp }, id);
@@ -146,6 +161,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "dj:position": {
       if (!isDj(id)) return;
+      touchDjHeartbeat();
       station.position = Number(msg.position ?? station.position);
       station.positionTimestamp = Date.now();
       // Silent update — no broadcast needed for heartbeat, listeners interpolate

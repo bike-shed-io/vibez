@@ -280,6 +280,7 @@ struct MainWindowView: View {
               Label("Stop DJing", systemImage: "stop.circle.fill")
             }
             .buttonStyle(.bordered)
+            .disabled(!appModel.isRoomConnected)
           } else {
             Button {
               appModel.claimDJ()
@@ -287,6 +288,7 @@ struct MainWindowView: View {
               Label("Become DJ", systemImage: "music.mic.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .disabled(!appModel.isRoomConnected)
           }
         }
 

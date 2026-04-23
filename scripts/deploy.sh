@@ -19,6 +19,7 @@ op inject -i env/prod.env.tpl -o env/prod.env -f
 rsync -azP --delete -e "$SSH" \
   --exclude 'node_modules' --exclude '.git' \
   --exclude 'dist' --exclude '.env' \
+  --exclude '.build' \
   --exclude '.claude/worktrees' \
   . "$USER@$SERVER:~/source/"
 

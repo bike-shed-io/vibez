@@ -83,6 +83,10 @@ final class VibezAppModel: NSObject, ObservableObject {
     configuration?.listenerName ?? "Listener"
   }
 
+  var isRoomConnected: Bool {
+    connectionState == .connected && webSocketTask != nil
+  }
+
   var connectionLabel: String {
     switch connectionState {
     case .setupRequired:
@@ -253,7 +257,6 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
 
     send(["type": "join", "name": configuration.listenerName])
-    connectionState = .connected
   }
 
   private func disconnect() {
@@ -343,6 +346,8 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func applyStationSnapshot(_ message: [String: Any]) {
+    connectionState = .connected
+    errorMessage = nil
     djName = message["djName"] as? String
     isDJ = djName == configuration?.listenerName
     listeners = (message["listeners"] as? [String]) ?? listeners
@@ -485,7 +490,10 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func send(_ payload: [String: Any]) {
-    guard let webSocketTask else { return }
+    guard let webSocketTask else {
+      errorMessage = "Room connection is offline. Tap Reconnect."
+      return
+    }
 
     Task {
       guard JSONSerialization.isValidJSONObject(payload),
