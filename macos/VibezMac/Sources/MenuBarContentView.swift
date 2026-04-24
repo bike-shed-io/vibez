@@ -313,10 +313,10 @@ struct MenuBarContentView: View {
         .buttonStyle(.bordered)
       }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
       .padding(16)
     }
-    .frame(width: 370)
-    .frame(maxHeight: 640)
+    .frame(width: 370, height: 620, alignment: .topLeading)
   }
 
   private var artworkPlaceholder: some View {

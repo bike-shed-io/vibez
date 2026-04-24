@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MainWindowView: View {
@@ -23,6 +24,18 @@ struct MainWindowView: View {
     }
     .frame(minWidth: 430, minHeight: 720)
     .background(Color(nsColor: .windowBackgroundColor))
+    .onAppear {
+      if let window = NSApp.windows.first(where: { $0.title == "Vibez" }) {
+        window.identifier = NSUserInterfaceItemIdentifier("main")
+      }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .vibezOpenSetupRequested)) { _ in
+      showingSetup = true
+      NSApp.activate(ignoringOtherApps: true)
+      if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "main" }) {
+        window.makeKeyAndOrderFront(nil)
+      }
+    }
   }
 
   private var mainClient: some View {
