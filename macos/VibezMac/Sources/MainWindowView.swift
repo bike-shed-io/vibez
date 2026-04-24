@@ -24,9 +24,9 @@ struct MainWindowView: View {
     }
     .frame(minWidth: 430, minHeight: 720)
     .background(Color(nsColor: .windowBackgroundColor))
-    .onAppear {
-      if let window = NSApp.windows.first(where: { $0.title == "Vibez" }) {
-        window.identifier = NSUserInterfaceItemIdentifier("main")
+    .background {
+      WindowAccessor { window in
+        configure(window)
       }
     }
     .onReceive(NotificationCenter.default.publisher(for: .vibezOpenSetupRequested)) { _ in
@@ -36,6 +36,12 @@ struct MainWindowView: View {
         window.makeKeyAndOrderFront(nil)
       }
     }
+  }
+
+  private func configure(_ window: NSWindow) {
+    window.identifier = NSUserInterfaceItemIdentifier("main")
+    window.isReleasedWhenClosed = false
+    window.delegate = HideOnCloseWindowDelegate.shared
   }
 
   private var mainClient: some View {

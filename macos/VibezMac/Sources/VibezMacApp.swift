@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct VibezMacApp: App {
+  @NSApplicationDelegateAdaptor(VibezAppDelegate.self) private var appDelegate
+
   @StateObject private var appModel = VibezAppModel()
   @State private var statusBarController: StatusBarController?
 
