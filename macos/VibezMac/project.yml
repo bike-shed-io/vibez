@@ -13,11 +13,12 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - Sources
+      - Assets.xcassets
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: vibez
-        INFOPLIST_KEY_LSUIElement: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - sdk: WebKit.framework
