@@ -15,7 +15,8 @@ This document is the shared project memory for agents and humans working on Vibe
 - Backend: Bun + Hono single process with static frontend and `/ws` sync endpoint.
 - Auth: basic auth password for now; username is ignored.
 - Production: rootless Podman under user `vibez` on the shared Hetzner host.
-- Native macOS app: SwiftUI menu bar app in `macos/VibezMac`.
+- Native macOS app: SwiftUI menu bar + Dock app in `macos/VibezMac`.
+- App visibility: Dock and menu bar are both visible by default; users may hide either one in settings, but not both.
 - Distribution: public tap/release repo at `bike-shed-io/vibez-mac`.
 - Current cask token direction: prefer `brew install --cask vibez`; keep `vibez-mac` as legacy compatibility for now.
 
