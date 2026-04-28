@@ -16,6 +16,8 @@ final class AppVisibilitySettings: ObservableObject {
       guard showDockIcon || showMenuBarIcon else {
         showDockIcon = true
         message = "Vibez must stay visible in either the Dock or the menu bar."
+        defaults.set(showDockIcon, forKey: Keys.showDockIcon)
+        applyActivationPolicy()
         return
       }
 
@@ -29,6 +31,7 @@ final class AppVisibilitySettings: ObservableObject {
       guard showDockIcon || showMenuBarIcon else {
         showMenuBarIcon = true
         message = "Vibez must stay visible in either the Dock or the menu bar."
+        defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon)
         return
       }
 
@@ -40,9 +43,20 @@ final class AppVisibilitySettings: ObservableObject {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
-    self.showDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? true
-    self.showMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
-    applyActivationPolicy()
+
+    let storedShowDockIcon = defaults.object(forKey: Keys.showDockIcon) as? Bool ?? true
+    let storedShowMenuBarIcon = defaults.object(forKey: Keys.showMenuBarIcon) as? Bool ?? true
+
+    if storedShowDockIcon || storedShowMenuBarIcon {
+      self.showDockIcon = storedShowDockIcon
+      self.showMenuBarIcon = storedShowMenuBarIcon
+      return
+    }
+
+    self.showDockIcon = true
+    self.showMenuBarIcon = true
+    defaults.set(true, forKey: Keys.showDockIcon)
+    defaults.set(true, forKey: Keys.showMenuBarIcon)
   }
 
   func applyActivationPolicy() {
