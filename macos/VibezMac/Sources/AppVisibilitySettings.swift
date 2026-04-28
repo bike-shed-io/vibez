@@ -21,6 +21,7 @@ final class AppVisibilitySettings: ObservableObject {
         return
       }
 
+      message = nil
       defaults.set(showDockIcon, forKey: Keys.showDockIcon)
       applyActivationPolicy()
     }
@@ -35,6 +36,7 @@ final class AppVisibilitySettings: ObservableObject {
         return
       }
 
+      message = nil
       defaults.set(showMenuBarIcon, forKey: Keys.showMenuBarIcon)
     }
   }

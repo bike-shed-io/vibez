@@ -51,9 +51,9 @@ struct MainWindowView: View {
         header
         nowPlayingCard
         listenerMixCard
-        appSettingsCard
         djCard
         listenersCard
+        appSettingsCard
       }
       .padding(20)
     }
@@ -299,9 +299,7 @@ struct MainWindowView: View {
             .foregroundStyle(.orange)
         }
       }
-      .onAppear {
-        visibilitySettings.clearMessage()
-      }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
