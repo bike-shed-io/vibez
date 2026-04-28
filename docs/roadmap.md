@@ -47,7 +47,6 @@ This document is the shared project memory for agents and humans working on Vibe
    - keep attribution/links intact
    - consider moving closer to official SoundCloud embed/intended playback where feasible
 5. Polish native app:
-   - app icon
    - clearer connected/offline states
    - better onboarding/settings screen
    - optional native now-playing notifications
@@ -59,7 +58,7 @@ This document is the shared project memory for agents and humans working on Vibe
 - Build local mac app: `make macos-build`.
 - Run local mac app: `make macos-run`.
 - Deploy backend/web: `make deploy` or `OP_ACCOUNT=my.1password.eu bash scripts/deploy.sh` if the default 1Password account is ambiguous.
-- Do not release a new cask unless explicitly asked.
+- Do not release a new cask until manual testing is complete and the user explicitly asks for release.
 - When releasing mac app, build from latest committed `vibez` source, upload zip to `bike-shed-io/vibez-mac`, update cask SHA/version, and verify with `brew info --cask vibez`.
 
 ## Open Questions
