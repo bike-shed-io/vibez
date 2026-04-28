@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MainWindowView: View {
   @EnvironmentObject private var appModel: VibezAppModel
+  @EnvironmentObject private var visibilitySettings: AppVisibilitySettings
   @State private var showingSetup = false
   @State private var draftSeekTime = 0.0
   @State private var isEditingSeek = false
@@ -50,6 +51,7 @@ struct MainWindowView: View {
         header
         nowPlayingCard
         listenerMixCard
+        appSettingsCard
         djCard
         listenersCard
       }
@@ -272,6 +274,33 @@ struct MainWindowView: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
         }
+      }
+    }
+  }
+
+  private var appSettingsCard: some View {
+    card {
+      VStack(alignment: .leading, spacing: 14) {
+        Text("App Settings")
+          .font(.caption.weight(.semibold))
+          .textCase(.uppercase)
+          .foregroundStyle(.secondary)
+
+        Toggle("Show Dock icon", isOn: $visibilitySettings.showDockIcon)
+        Toggle("Show menu bar icon", isOn: $visibilitySettings.showMenuBarIcon)
+
+        Text("Keep at least one access point enabled so Vibez does not disappear.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        if let message = visibilitySettings.message {
+          Text(message)
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+      }
+      .onAppear {
+        visibilitySettings.clearMessage()
       }
     }
   }
