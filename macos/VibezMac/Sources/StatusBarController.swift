@@ -4,17 +4,33 @@ import SwiftUI
 @MainActor
 final class StatusBarController: NSObject {
   private let appModel: VibezAppModel
-  private let statusItem: NSStatusItem
+  private let visibilitySettings: AppVisibilitySettings
+  private var statusItem: NSStatusItem?
   private let popover: NSPopover
 
-  init(appModel: VibezAppModel) {
+  init(appModel: VibezAppModel, visibilitySettings: AppVisibilitySettings) {
     self.appModel = appModel
-    self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    self.visibilitySettings = visibilitySettings
     self.popover = NSPopover()
     super.init()
 
     configurePopover()
-    configureStatusItem()
+    setVisible(visibilitySettings.showMenuBarIcon)
+  }
+
+  func setVisible(_ isVisible: Bool) {
+    if isVisible {
+      guard statusItem == nil else { return }
+
+      statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+      configureStatusItem()
+      return
+    }
+
+    popover.performClose(nil)
+    guard let statusItem else { return }
+    NSStatusBar.system.removeStatusItem(statusItem)
+    self.statusItem = nil
   }
 
   private func configurePopover() {
@@ -24,11 +40,12 @@ final class StatusBarController: NSObject {
     popover.contentViewController = NSHostingController(
       rootView: MenuBarContentView()
         .environmentObject(appModel)
+        .environmentObject(visibilitySettings)
     )
   }
 
   private func configureStatusItem() {
-    guard let button = statusItem.button else { return }
+    guard let button = statusItem?.button else { return }
     button.image = NSImage(systemSymbolName: "dot.radiowaves.left.and.right", accessibilityDescription: "vibez")
     button.imagePosition = .imageOnly
     button.action = #selector(handleStatusItemClick(_:))
@@ -51,7 +68,7 @@ final class StatusBarController: NSObject {
   }
 
   private func togglePopover(_ sender: AnyObject?) {
-    guard let button = statusItem.button else { return }
+    guard let button = statusItem?.button else { return }
 
     if popover.isShown {
       popover.performClose(sender)
@@ -63,6 +80,8 @@ final class StatusBarController: NSObject {
   }
 
   private func showContextMenu() {
+    guard let statusItem else { return }
+
     let menu = NSMenu()
 
     let openItem = NSMenuItem(title: "Open Vibez", action: #selector(openMainWindow), keyEquivalent: "")
