@@ -37,6 +37,7 @@ struct SetupView: View {
   let onSave: (VibezConfiguration) async throws -> Void
 
   @Environment(\.dismiss) private var dismiss
+  @EnvironmentObject private var visibilitySettings: AppVisibilitySettings
 
   @State private var serverURLString: String
   @State private var listenerName: String
@@ -97,6 +98,28 @@ struct SetupView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
 
+      Divider()
+
+      VStack(alignment: .leading, spacing: 12) {
+        Text("App Visibility")
+          .font(.caption.weight(.semibold))
+          .textCase(.uppercase)
+          .foregroundStyle(.secondary)
+
+        Toggle("Show Dock icon", isOn: $visibilitySettings.showDockIcon)
+        Toggle("Show menu bar icon", isOn: $visibilitySettings.showMenuBarIcon)
+
+        Text("Keep at least one access point enabled so Vibez does not disappear.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        if let message = visibilitySettings.message {
+          Text(message)
+            .font(.caption)
+            .foregroundStyle(.orange)
+        }
+      }
+
       if let errorMessage, !errorMessage.isEmpty {
         Text(errorMessage)
           .font(.caption)
@@ -121,7 +144,7 @@ struct SetupView: View {
       }
     }
     .padding(28)
-    .frame(minWidth: 520, minHeight: 340)
+    .frame(minWidth: 520, minHeight: 440)
   }
 
   private func save() {
