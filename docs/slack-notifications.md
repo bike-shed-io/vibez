@@ -1,0 +1,46 @@
+# Slack Notifications Setup
+
+Vibez uses a Slack Incoming Webhook for channel notifications.
+
+## Secret Location
+
+The Slack app/webhook details are stored in 1Password:
+
+```text
+Account/collection: enam
+Vault: eng admin
+Item: vibez Slack app
+```
+
+Do not commit the webhook URL to git.
+
+## Slack App
+
+- App name: `Vibez Notifications`
+- Feature: Incoming Webhooks
+- Target channel: configured in Slack when the webhook is created
+
+## Local Test
+
+Use the webhook URL from 1Password and test with:
+
+```sh
+curl -X POST \
+  -H 'Content-type: application/json' \
+  --data '{"text":"Hello from Vibez"}' \
+  "$SLACK_NOTIFICATIONS_WEBHOOK_URL"
+```
+
+## Production Env
+
+The app should read the webhook from:
+
+```text
+SLACK_NOTIFICATIONS_WEBHOOK_URL
+```
+
+The deploy env template should reference the 1Password item instead of embedding the URL directly.
+
+## Security Note
+
+If a webhook URL is pasted into chat, logs, or any public place, rotate it in Slack immediately and update the 1Password item.

@@ -18,12 +18,12 @@ Setup steps:
 6. Click `Add New Webhook to Workspace`.
 7. Choose the target channel, ideally `#vibez` or `#radio`.
 8. Copy the webhook URL.
-9. Store it in 1Password vault `infra`, item `vibez`, field `slack-notifications-webhook-url`.
+9. Store it in 1Password. Current safe reference: account/collection `enam`, vault `eng admin`, item `vibez Slack app`.
 
 Add this env var:
 
 ```text
-SLACK_NOTIFICATIONS_WEBHOOK_URL={{ op://infra/vibez/slack-notifications-webhook-url }}
+SLACK_NOTIFICATIONS_WEBHOOK_URL=<resolved from 1Password item: enam / eng admin / vibez Slack app>
 ```
 
 ## Behavior
