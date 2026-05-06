@@ -210,6 +210,9 @@ final class VibezAppModel: NSObject, ObservableObject {
   func resumeAsDJIfPossible() {
     guard isDJ else { return }
     send(["type": "dj:resume", "position": Int(currentTime * 1000)])
+    // Server broadcasts `play` to every connection except the DJ; we must start locally (same as web `radio.js`).
+    player.play()
+    isPlaying = true
   }
 
   func seek(to seconds: Double) {
