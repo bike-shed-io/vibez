@@ -23,8 +23,10 @@ printf '\nSLACK_NOTIFICATIONS_WEBHOOK_URL=%s\n' "$SLACK_NOTIFICATIONS_WEBHOOK_UR
 # 1. Sync source
 rsync -azP --delete -e "$SSH" \
   --exclude 'node_modules' --exclude '.git' \
-  --exclude 'dist' --exclude '.env' \
-  --exclude '.build' \
+  --exclude 'dist' --exclude '.env' --exclude '.cache' \
+  --exclude '.build' --exclude '.worktrees' \
+  --exclude 'bun.lock' --exclude 'env/prod.env' \
+  --exclude 'macos/VibezMac/VibezMac.xcodeproj' \
   --exclude '.claude/worktrees' \
   . "$USER@$SERVER:~/source/"
 
