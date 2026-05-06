@@ -10,6 +10,9 @@ The Slack app/webhook details are stored in 1Password:
 Account/collection: enam
 Vault: eng admin
 Item: vibez Slack app
+Item ID: gz3fstsnolbqgvmqgfe6w72lau
+Webhook field label: url
+Webhook field ID: naivtgjlnve3fxooq5dzstknvm
 ```
 
 Do not commit the webhook URL to git.
@@ -39,7 +42,11 @@ The app should read the webhook from:
 SLACK_NOTIFICATIONS_WEBHOOK_URL
 ```
 
-The deploy env template should reference the 1Password item instead of embedding the URL directly.
+The deploy env template should reference the 1Password item instead of embedding the URL directly:
+
+```text
+{{ op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm }}
+```
 
 ## Security Note
 
