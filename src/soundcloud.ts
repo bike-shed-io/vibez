@@ -168,6 +168,61 @@ export function clearCachedClientId() {
 
 const NEEDS_RETRY = Symbol("needs_retry");
 
+/** First playlist entry that includes stream metadata (full hydration). */
+function firstHydratedPlaylistTrack(tracks: unknown): any | null {
+  if (!Array.isArray(tracks)) return null;
+  for (const t of tracks) {
+    const trans = t?.media?.transcodings;
+    if (Array.isArray(trans) && trans.length > 0 && t.track_authorization) {
+      return t;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve API payloads can be a track or a playlist/set. Only tracks carry `media.transcodings`.
+ */
+async function trackJsonFromResolvePayload(resolved: any, clientId: string): Promise<any> {
+  const kind = resolved?.kind;
+  if (kind === "track") {
+    return resolved;
+  }
+  if (kind === "playlist") {
+    const ready = firstHydratedPlaylistTrack(resolved.tracks);
+    if (ready) return ready;
+
+    const stubs = Array.isArray(resolved.tracks) ? resolved.tracks : [];
+    for (const stub of stubs) {
+      const permalink = stub?.permalink_url;
+      if (typeof permalink !== "string" || permalink.length === 0) continue;
+
+      const hydrateUrl = `https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(permalink)}&client_id=${clientId}`;
+      const hydrateRes = await fetch(hydrateUrl, {
+        headers: { "User-Agent": USER_AGENT },
+      });
+      if (!hydrateRes.ok) continue;
+
+      const track = (await hydrateRes.json()) as any;
+      if (
+        track?.kind === "track" &&
+        Array.isArray(track?.media?.transcodings) &&
+        track.media.transcodings.length > 0
+      ) {
+        return track;
+      }
+    }
+
+    throw new Error(
+      "Playlist has no streamable tracks right now. Try a single-track URL or another set.",
+    );
+  }
+
+  throw new Error(
+    `Unsupported SoundCloud resource (“${kind ?? "unknown"}”). Use a track link or a playlist/set link.`,
+  );
+}
+
 export async function resolveStreamUrl(trackUrl: string): Promise<string> {
   // Check cache
   const cached = streamCache.get(trackUrl);
@@ -194,7 +249,8 @@ export async function resolveStreamUrl(trackUrl: string): Promise<string> {
         throw new Error(`SoundCloud resolve failed: ${resolveRes.status}`);
       }
 
-      const trackData = (await resolveRes.json()) as any;
+      const resolved = (await resolveRes.json()) as any;
+      const trackData = await trackJsonFromResolvePayload(resolved, clientId);
 
       const transcodings: any[] | undefined = trackData?.media?.transcodings;
       if (!Array.isArray(transcodings) || transcodings.length === 0) {
