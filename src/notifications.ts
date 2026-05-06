@@ -51,9 +51,15 @@ function slackMessage(text: string, radioUrl: string): SlackPayload {
         elements: [
           {
             type: "button",
-            text: { type: "plain_text", text: "Open Vibez" },
+            text: { type: "plain_text", text: "Open Vibez App" },
+            url: "vibez://open",
+            action_id: "open_vibez_app",
+          },
+          {
+            type: "button",
+            text: { type: "plain_text", text: "Open Web" },
             url: radioUrl,
-            action_id: "open_vibez",
+            action_id: "open_vibez_web",
           },
         ],
       },

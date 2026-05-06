@@ -102,4 +102,27 @@ describe("notification service", () => {
       ":radio: Lisa joined Vibez",
     ]);
   });
+
+  test("Slack notification payload includes native app and web buttons", async () => {
+    const sent: any[] = [];
+    const service = createNotificationService({
+      webhookUrl: "https://hooks.slack.com/services/test",
+      radioUrl: "https://vibez.bike-shed.io",
+      postJson: async (_url, payload) => {
+        sent.push(payload);
+      },
+    });
+
+    await service.notifyDjStarted("Patrick");
+
+    const actions = sent[0].blocks.find((block: any) => block.type === "actions");
+    expect(actions.elements.map((element: any) => element.text.text)).toEqual([
+      "Open Vibez App",
+      "Open Web",
+    ]);
+    expect(actions.elements.map((element: any) => element.url)).toEqual([
+      "vibez://open",
+      "https://vibez.bike-shed.io",
+    ]);
+  });
 });
