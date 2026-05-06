@@ -15,6 +15,11 @@ SSH="ssh -i $SSH_KEY"
 echo "Injecting secrets from 1Password..."
 op inject -i env/prod.env.tpl -o env/prod.env -f
 
+SLACK_NOTIFICATIONS_OP_ACCOUNT="${SLACK_NOTIFICATIONS_OP_ACCOUNT:-enamco.1password.com}"
+SLACK_NOTIFICATIONS_OP_REF="op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm"
+SLACK_NOTIFICATIONS_WEBHOOK_URL="$(OP_ACCOUNT="$SLACK_NOTIFICATIONS_OP_ACCOUNT" op read "$SLACK_NOTIFICATIONS_OP_REF")"
+printf '\nSLACK_NOTIFICATIONS_WEBHOOK_URL=%s\n' "$SLACK_NOTIFICATIONS_WEBHOOK_URL" >> env/prod.env
+
 # 1. Sync source
 rsync -azP --delete -e "$SSH" \
   --exclude 'node_modules' --exclude '.git' \

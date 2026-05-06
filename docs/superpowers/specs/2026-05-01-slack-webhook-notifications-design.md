@@ -23,8 +23,10 @@ Setup steps:
 Add this env var:
 
 ```text
-SLACK_NOTIFICATIONS_WEBHOOK_URL={{ op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm }}
+SLACK_NOTIFICATIONS_WEBHOOK_URL=<injected by scripts/deploy.sh from op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm>
 ```
+
+The deploy script must read this value with `OP_ACCOUNT=enamco.1password.com` because the existing `infra` deploy secrets live in a different 1Password account.
 
 ## Behavior
 

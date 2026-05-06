@@ -42,11 +42,14 @@ The app should read the webhook from:
 SLACK_NOTIFICATIONS_WEBHOOK_URL
 ```
 
-The deploy env template should reference the 1Password item instead of embedding the URL directly:
+The deploy script reads the webhook from the company 1Password account and appends it to the generated production env:
 
 ```text
-{{ op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm }}
+SLACK_NOTIFICATIONS_OP_ACCOUNT=enamco.1password.com
+op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm
 ```
+
+This is intentionally handled in `scripts/deploy.sh`, because the existing production env template resolves secrets from the personal `infra` vault/account while this Slack webhook lives in the company account.
 
 ## Security Note
 
