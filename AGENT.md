@@ -27,7 +27,9 @@ Read this first when working on Vibez.
 ## Release Notes
 
 - Mac app source lives in this repo under `macos/VibezMac`.
-- Public Homebrew tap/release repo is `bike-shed-io/vibez-mac`.
-- Preferred install UX is `brew install --cask vibez` once the `vibez` cask token is in place.
+- Public Homebrew tap/release repo is `bike-shed-io/homebrew-vibez`.
+- Homebrew tap name is `bike-shed-io/vibez`.
+- Preferred install UX is `brew tap bike-shed-io/vibez && brew install --cask vibez`.
 - Keep `vibez-mac` cask compatibility until explicitly migrated away.
 - Do not cut a macOS release unless the user explicitly asks.
+- When a release is scheduled or completed, post a Slack webhook message to the Vibez channel with the version, short summary, and update command: `brew update && brew upgrade --cask vibez`.

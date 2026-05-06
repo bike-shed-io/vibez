@@ -54,3 +54,25 @@ This is intentionally handled in `scripts/deploy.sh`, because the existing produ
 ## Security Note
 
 If a webhook URL is pasted into chat, logs, or any public place, rotate it in Slack immediately and update the 1Password item.
+
+## Release Notifications
+
+When a Vibez for Mac release is scheduled or completed, post a Slack webhook message with the version, short summary, and update command.
+
+Example payload:
+
+```json
+{
+  "text": ":sparkles: Vibez for Mac v0.1.4 is available\nUpdate with: `brew update && brew upgrade --cask vibez`"
+}
+```
+
+Example command:
+
+```sh
+SLACK_NOTIFICATIONS_WEBHOOK_URL="$(OP_ACCOUNT=enamco.1password.com op read 'op://Eng Admin/gz3fstsnolbqgvmqgfe6w72lau/naivtgjlnve3fxooq5dzstknvm')"
+curl -X POST \
+  -H 'Content-type: application/json' \
+  --data '{"text":":sparkles: Vibez for Mac v0.1.4 is available\nUpdate with: `brew update && brew upgrade --cask vibez`"}' \
+  "$SLACK_NOTIFICATIONS_WEBHOOK_URL"
+```

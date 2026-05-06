@@ -17,7 +17,7 @@ This document is the shared project memory for agents and humans working on Vibe
 - Production: rootless Podman under user `vibez` on the shared Hetzner host.
 - Native macOS app: SwiftUI menu bar + Dock app in `macos/VibezMac`.
 - App visibility: Dock and menu bar are both visible by default; users may hide either one in settings, but not both.
-- Distribution: public tap/release repo at `bike-shed-io/vibez-mac`.
+- Distribution: public tap/release repo at `bike-shed-io/homebrew-vibez`.
 - Current cask token direction: prefer `brew install --cask vibez`; keep `vibez-mac` as legacy compatibility for now.
 
 ## Recent Decisions
@@ -54,12 +54,13 @@ This document is the shared project memory for agents and humans working on Vibe
 ## Release Notes For Agents
 
 - Source repo: `bike-shed-io/vibez`.
-- Mac release/tap repo: `bike-shed-io/vibez-mac`.
+- Mac release/tap repo: `bike-shed-io/homebrew-vibez`.
+- Homebrew tap name: `bike-shed-io/vibez`.
 - Build local mac app: `make macos-build`.
 - Run local mac app: `make macos-run`.
 - Deploy backend/web: `make deploy` or `OP_ACCOUNT=my.1password.eu bash scripts/deploy.sh` if the default 1Password account is ambiguous.
 - Do not release a new cask until manual testing is complete and the user explicitly asks for release.
-- When releasing mac app, build from latest committed `vibez` source, upload zip to `bike-shed-io/vibez-mac`, update cask SHA/version, and verify with `brew info --cask vibez`.
+- When releasing mac app, build from latest committed `vibez` source, upload zip to `bike-shed-io/homebrew-vibez`, update cask SHA/version, verify with `brew info --cask vibez`, and post a Slack webhook release note with `brew update && brew upgrade --cask vibez`.
 
 ## Open Questions
 
