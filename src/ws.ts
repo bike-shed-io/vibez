@@ -1,4 +1,5 @@
 import type { WSContext } from "hono/ws";
+import { notifications } from "./notifications";
 import { station, getSnapshot, setTrack, claimDj, releaseDj, isDj, listenerNames, listenerCount, touchDjHeartbeat } from "./station";
 import { fetchTrackMeta, resolveStreamUrl } from "./soundcloud";
 
@@ -67,6 +68,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const name = String(msg.name || "Anonymous").slice(0, 30);
       conn.name = name;
       station.listeners.set(id, { name, connectedAt: Date.now() });
+      notifications.notifyListenerJoined(name);
       conn.ws.send(JSON.stringify({ type: "sync", ...getSnapshot() }));
       broadcastListeners();
       break;
@@ -83,6 +85,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       }
       const name = conn.name;
       claimDj(id, name);
+      void notifications.notifyDjStarted(name);
       broadcast({ type: "dj:changed", djName: name });
       break;
     }

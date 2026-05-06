@@ -81,4 +81,25 @@ describe("notification service", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].text).toBe(":headphones: Patrick is DJing on Vibez");
   });
+
+  test("join batch can be flushed repeatedly", async () => {
+    const sent: any[] = [];
+    const service = createNotificationService({
+      webhookUrl: "https://hooks.slack.com/services/test",
+      radioUrl: "https://vibez.bike-shed.io",
+      postJson: async (_url, payload) => {
+        sent.push(payload);
+      },
+    });
+
+    service.notifyListenerJoined("Patrick");
+    await service.flushJoinedListeners();
+    service.notifyListenerJoined("Lisa");
+    await service.flushJoinedListeners();
+
+    expect(sent.map((payload) => payload.text)).toEqual([
+      ":radio: Patrick joined Vibez",
+      ":radio: Lisa joined Vibez",
+    ]);
+  });
 });
