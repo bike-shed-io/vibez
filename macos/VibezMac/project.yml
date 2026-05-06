@@ -14,10 +14,16 @@ targets:
     sources:
       - Sources
       - Assets.xcassets
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: vibez
+        CFBundleURLTypes:
+          - CFBundleURLName: io.bike-shed.vibez.mac
+            CFBundleURLSchemes:
+              - vibez
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: vibez
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
     dependencies:

@@ -103,7 +103,7 @@ final class StatusBarController: NSObject {
     statusItem.menu = nil
   }
 
-  @objc private func openMainWindow() {
+  @objc func openMainWindow() {
     popover.performClose(nil)
     NSApp.activate(ignoringOtherApps: true)
 

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -25,6 +26,11 @@ struct VibezMacApp: App {
         }
         .onChange(of: visibilitySettings.showDockIcon) { _, _ in
           visibilitySettings.applyActivationPolicy()
+        }
+        .onOpenURL { url in
+          guard url.scheme == "vibez", url.host == "open" else { return }
+          NSApp.activate(ignoringOtherApps: true)
+          statusBarController?.openMainWindow()
         }
     }
     .defaultSize(width: 470, height: 820)
