@@ -1,12 +1,14 @@
 # Automatic deployment to Hetzner on push to main.
 #
 # Required GitHub Secrets (Settings → Secrets and variables → Actions):
-#   SSH_PRIVATE_KEY              - private key for vibez@188.245.49.145 (contents of deploy_vibez_ed25519)
-#   AUTH_PASSWORD                - basic auth password for web UI
-#   SLACK_BOT_TOKEN              - Slack bot token (Socket Mode)
-#   SLACK_APP_TOKEN              - Slack app token (Socket Mode)
-#   SOUNDCLOUD_CLIENT_ID         - SoundCloud streaming client ID
+#   SSH_PRIVATE_KEY                 - private key for vibez@188.245.49.145 (contents of deploy_vibez_ed25519)
+#   AUTH_PASSWORD                   - basic auth password for web UI
 #   SLACK_NOTIFICATIONS_WEBHOOK_URL - Slack incoming webhook for deploy notifications
+#
+# Optional GitHub Secrets:
+#   SLACK_BOT_TOKEN                 - Slack bot token (Socket Mode, xoxb-...)
+#   SLACK_APP_TOKEN                 - Slack app token (Socket Mode, xapp-...)
+#   SOUNDCLOUD_CLIENT_ID            - SoundCloud streaming client ID; app can fall back to discovery
 
 name: Deploy
 
