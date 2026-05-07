@@ -50,6 +50,7 @@
   const vibezFloor = $("vibezFloor");
   const vibezLive = $("vibezLive");
   const vibezCeiling = $("vibezCeiling");
+  const airplayBtn = $("airplayBtn");
   const queueCount = $("queueCount");
   const queueList = $("queueList");
   const queueEmpty = $("queueEmpty");
@@ -254,6 +255,38 @@
     audio.pause();
     audio.currentTime = Math.max(0, positionMs / 1000);
   }
+
+  // --- AirPlay / Remote Playback ---
+  function setupAirplay() {
+    if (audio.remote) {
+      audio.remote.watchAvailability((available) => {
+        airplayBtn.classList.toggle("hidden", !available);
+      }).catch(() => {});
+
+      airplayBtn.addEventListener("click", () => {
+        audio.remote.prompt().catch(() => {});
+      });
+
+      audio.remote.addEventListener("connecting", () => airplayBtn.classList.add("active"));
+      audio.remote.addEventListener("connect", () => airplayBtn.classList.add("active"));
+      audio.remote.addEventListener("disconnect", () => airplayBtn.classList.remove("active"));
+      return;
+    }
+
+    if (typeof audio.webkitShowPlaybackTargetPicker === "function") {
+      audio.addEventListener("webkitplaybacktargetavailabilitychanged", (e) => {
+        airplayBtn.classList.toggle("hidden", e.availability !== "available");
+      });
+      airplayBtn.addEventListener("click", () => {
+        audio.webkitShowPlaybackTargetPicker();
+      });
+      audio.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", () => {
+        airplayBtn.classList.toggle("active", audio.webkitCurrentPlaybackTargetIsWireless);
+      });
+    }
+  }
+
+  setupAirplay();
 
   // --- Stream refresh on error ---
   audio.addEventListener("error", () => {

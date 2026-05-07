@@ -40,11 +40,17 @@
             <div class="dj-name">DJ: <span id="djName">—</span></div>
           </div>
         </div>
-        <audio id="audioPlayer" preload="auto"></audio>
+        <audio id="audioPlayer" preload="auto" x-webkit-airplay="allow"></audio>
         <div class="seek-control">
           <span class="seek-time" id="seekCurrent">0:00</span>
           <input type="range" id="seekBar" min="0" max="1" step="0.001" value="0" />
           <span class="seek-time" id="seekDuration">0:00</span>
+          <button class="btn-icon hidden" id="airplayBtn" title="Stream to AirPlay">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h18a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2"/>
+              <polygon points="12 15 17 21 7 21 12 15"/>
+            </svg>
+          </button>
         </div>
         <div class="listener-controls">
           <div class="listener-control-card">

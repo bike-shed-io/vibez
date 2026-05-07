@@ -350,6 +350,35 @@ button:active {
   cursor: pointer;
 }
 
+/* AirPlay button */
+.btn-icon {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.btn-icon:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.btn-icon.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.btn-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* DJ controls */
 .dj-controls {
   display: flex;
