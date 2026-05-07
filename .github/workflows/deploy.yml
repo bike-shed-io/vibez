@@ -1,0 +1,92 @@
+# Automatic deployment to Hetzner on push to main.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   SSH_PRIVATE_KEY              - private key for vibez@188.245.49.145 (contents of deploy_vibez_ed25519)
+#   AUTH_PASSWORD                - basic auth password for web UI
+#   SLACK_BOT_TOKEN              - Slack bot token (Socket Mode)
+#   SLACK_APP_TOKEN              - Slack app token (Socket Mode)
+#   SOUNDCLOUD_CLIENT_ID         - SoundCloud streaming client ID
+#   SLACK_NOTIFICATIONS_WEBHOOK_URL - Slack incoming webhook for deploy notifications
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'macos/**'
+      - '**.md'
+
+jobs:
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_vibez_ed25519
+          chmod 600 ~/.ssh/deploy_vibez_ed25519
+          ssh-keyscan -H 188.245.49.145 >> ~/.ssh/known_hosts
+
+      - name: Generate prod.env
+        run: |
+          cat > env/prod.env <<EOF
+          PORT=3005
+          RADIO_URL=https://vibez.bike-shed.io
+          AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }}
+          SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
+          SOUNDCLOUD_CLIENT_ID=${{ secrets.SOUNDCLOUD_CLIENT_ID }}
+          SLACK_NOTIFICATIONS_WEBHOOK_URL=${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
+          EOF
+
+      - name: Rsync source to server
+        run: |
+          rsync -azP --delete \
+            -e "ssh -i ~/.ssh/deploy_vibez_ed25519" \
+            --exclude 'node_modules' --exclude '.git' \
+            --exclude 'dist' --exclude '.env' --exclude '.cache' \
+            --exclude '.build' --exclude '.worktrees' \
+            --exclude 'bun.lock' --exclude 'env/prod.env' \
+            --exclude 'macos/VibezMac/VibezMac.xcodeproj' \
+            --exclude '.claude/worktrees' \
+            . vibez@188.245.49.145:~/source/
+
+      - name: Copy compose file and env to deploy dir
+        run: |
+          ssh -i ~/.ssh/deploy_vibez_ed25519 vibez@188.245.49.145 "mkdir -p ~/deploy"
+          scp -i ~/.ssh/deploy_vibez_ed25519 docker-compose.prod.yml vibez@188.245.49.145:~/deploy/docker-compose.yml
+          scp -i ~/.ssh/deploy_vibez_ed25519 env/prod.env vibez@188.245.49.145:~/deploy/prod.env
+
+      - name: Build and restart on server
+        run: |
+          ssh -i ~/.ssh/deploy_vibez_ed25519 vibez@188.245.49.145 bash -s <<'REMOTE'
+            set -euo pipefail
+            cd ~/source
+            podman build -t vibez:local -f Dockerfile .
+            cd ~/deploy
+            podman compose down --remove-orphans 2>/dev/null || true
+            podman compose up -d
+            podman image prune -af --filter "until=24h" 2>/dev/null || true
+            echo "=== Deploy complete ==="
+            podman compose ps
+          REMOTE
+
+      - name: Notify Slack (success)
+        if: success()
+        run: |
+          curl -sf -X POST "${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\"✅ *vibez deployed* — <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${GITHUB_SHA::7}> by ${{ github.actor }}\"}"
+
+      - name: Notify Slack (failure)
+        if: failure()
+        run: |
+          curl -sf -X POST "${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}" \
+            -H 'Content-Type: application/json' \
+            -d "{\"text\":\"❌ *vibez deploy failed* — <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run> · commit <https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${GITHUB_SHA::7}> by ${{ github.actor }}\"}"
