@@ -2,6 +2,18 @@ import { App } from "@slack/bolt";
 import { station, getSnapshot, listenerCount, listenerNames, claimDj, releaseDj } from "./station";
 import { playFromSlack, queueFromSlack } from "./ws";
 
+export const SLACK_COMMANDS = ["/vibez", "/radio"];
+
+export function radioCommandUsage(commandName: string) {
+  return `Usage:
+• \`${commandName} play <soundcloud-url>\` — play a track
+• \`${commandName} queue <soundcloud-url>\` — add a track to the queue
+• \`${commandName} queue\` — show the current queue
+• \`${commandName} stop\` — stop the radio
+• \`${commandName} np\` — now playing
+• \`${commandName} listeners\` — who's tuned in`;
+}
+
 let slackApp: InstanceType<typeof App> | null = null;
 
 export async function startSlack() {
@@ -19,9 +31,10 @@ export async function startSlack() {
     socketMode: true,
   });
 
-  slackApp.command("/radio", async ({ command, ack, respond }) => {
+  const handleCommand = async ({ command, ack, respond }: any) => {
     await ack();
 
+    const commandName = command.command || "/vibez";
     const args = command.text.trim().split(/\s+/);
     const sub = args[0]?.toLowerCase() || "help";
     const radioUrl = process.env.RADIO_URL || "http://localhost:3000";
@@ -30,7 +43,7 @@ export async function startSlack() {
       case "play": {
         const url = args[1];
         if (!url) {
-          await respond("Usage: `/radio play <soundcloud-url>`");
+          await respond(`Usage: \`${commandName} play <soundcloud-url>\``);
           return;
         }
 
@@ -120,7 +133,7 @@ export async function startSlack() {
         const url = args[1];
         if (!url) {
           if (station.queue.length === 0) {
-            await respond({ response_type: "ephemeral", text: "The queue is empty. Use `/radio queue <soundcloud-url>` to add a track." });
+            await respond({ response_type: "ephemeral", text: `The queue is empty. Use \`${commandName} queue <soundcloud-url>\` to add a track.` });
             return;
           }
           const lines = station.queue.map((item, i) =>
@@ -171,11 +184,13 @@ export async function startSlack() {
       }
 
       default:
-        await respond(
-          "Usage:\n• `/radio play <soundcloud-url>` — play a track\n• `/radio queue <soundcloud-url>` — add a track to the queue\n• `/radio queue` — show the current queue\n• `/radio stop` — stop the radio\n• `/radio np` — now playing\n• `/radio listeners` — who's tuned in"
-        );
+        await respond(radioCommandUsage(commandName));
     }
-  });
+  };
+
+  for (const commandName of SLACK_COMMANDS) {
+    slackApp.command(commandName, handleCommand);
+  }
 
   // Handle the "Tune In" button action (Slack requires an ack)
   slackApp.action("tune_in", async ({ ack }) => {
