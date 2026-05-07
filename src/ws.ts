@@ -303,9 +303,11 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
     }
 
     case "track:ended": {
+      if (!isDj(id)) return;
       const endedUrl = String(msg.trackUrl || "");
       if (endedUrl && endedUrl !== station.trackUrl) return;
       if (station.queue.length === 0) return;
+      touchDjHeartbeat();
       await playNextFromQueue();
       break;
     }
