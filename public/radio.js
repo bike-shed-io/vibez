@@ -8,6 +8,7 @@
   let currentListenerNames = [];
   let vibezLevel = 0;
   let vibezRange = 0.2;
+  let queueItems = [];
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
@@ -49,6 +50,14 @@
   const vibezFloor = $("vibezFloor");
   const vibezLive = $("vibezLive");
   const vibezCeiling = $("vibezCeiling");
+  const queueCount = $("queueCount");
+  const queueList = $("queueList");
+  const queueEmpty = $("queueEmpty");
+  const queueUrlInput = $("queueUrlInput");
+  const queueAddBtn = $("queueAddBtn");
+  const queueDjControls = $("queueDjControls");
+  const skipBtn = $("skipBtn");
+  const shuffleBtn = $("shuffleBtn");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -132,10 +141,24 @@
           }
         }
         setVibezLevelFromRoom(msg.vibezBoost ?? 0);
+        renderQueue(msg.queue || []);
         break;
 
       case "track":
-        showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl);
+        if (!msg.url && !msg.streamUrl) {
+          trackInfo.classList.add("hidden");
+          noTrack.classList.remove("hidden");
+          noTrack.textContent = "No track playing — queue is empty";
+          currentTrackUrl = null;
+          audio.pause();
+          audio.removeAttribute("src");
+        } else {
+          showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl);
+        }
+        break;
+
+      case "queue":
+        renderQueue(msg.items || []);
         break;
 
       case "play":
@@ -334,14 +357,18 @@
       djToggle.textContent = "Stop DJing";
       djToggle.className = "btn-danger";
       djControls.classList.remove("hidden");
+      queueDjControls.classList.remove("hidden");
       startHeartbeat();
+      renderQueue(queueItems);
     } else {
       ws.send(JSON.stringify({ type: "dj:release" }));
       isDj = false;
       djToggle.textContent = "Become DJ";
       djToggle.className = "btn-secondary";
       djControls.classList.add("hidden");
+      queueDjControls.classList.add("hidden");
       stopHeartbeat();
+      renderQueue(queueItems);
     }
   });
 
@@ -511,6 +538,116 @@
   vibezSlider.addEventListener("change", () => {
     const boost = clampSigned(vibezSlider.value);
     if (ws) ws.send(JSON.stringify({ type: "vibez:boost", boost }));
+  });
+
+  // --- Track ended → auto-advance queue ---
+  audio.addEventListener("ended", () => {
+    if (!ws || !currentTrackUrl) return;
+    ws.send(JSON.stringify({ type: "track:ended", trackUrl: currentTrackUrl }));
+  });
+
+  // --- Queue rendering ---
+  function renderQueue(items) {
+    queueItems = items || [];
+    queueCount.textContent = queueItems.length;
+
+    while (queueList.firstChild) {
+      queueList.removeChild(queueList.firstChild);
+    }
+
+    if (queueItems.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "queue-empty";
+      empty.textContent = "Queue is empty";
+      queueList.appendChild(empty);
+      return;
+    }
+
+    queueItems.forEach((item, idx) => {
+      const el = document.createElement("div");
+      el.className = "queue-item";
+
+      const pos = document.createElement("span");
+      pos.className = "queue-item-pos";
+      pos.textContent = idx + 1;
+
+      const info = document.createElement("div");
+      info.className = "queue-item-info";
+
+      const title = document.createElement("div");
+      title.className = "queue-item-title";
+      title.textContent = item.title || "Unknown Track";
+
+      const added = document.createElement("div");
+      added.className = "queue-item-added";
+      added.textContent = "added by " + escapeHtml(item.addedBy);
+
+      info.appendChild(title);
+      info.appendChild(added);
+
+      el.appendChild(pos);
+      el.appendChild(info);
+
+      if (isDj) {
+        const actions = document.createElement("div");
+        actions.className = "queue-item-actions";
+
+        if (idx > 0) {
+          const upBtn = document.createElement("button");
+          upBtn.className = "queue-item-btn";
+          upBtn.textContent = "\u25B2";
+          upBtn.title = "Move up";
+          upBtn.addEventListener("click", () => {
+            ws.send(JSON.stringify({ type: "queue:reorder", itemId: item.id, toIndex: idx - 1 }));
+          });
+          actions.appendChild(upBtn);
+        }
+
+        if (idx < queueItems.length - 1) {
+          const downBtn = document.createElement("button");
+          downBtn.className = "queue-item-btn";
+          downBtn.textContent = "\u25BC";
+          downBtn.title = "Move down";
+          downBtn.addEventListener("click", () => {
+            ws.send(JSON.stringify({ type: "queue:reorder", itemId: item.id, toIndex: idx + 1 }));
+          });
+          actions.appendChild(downBtn);
+        }
+
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "queue-item-btn remove-btn";
+        removeBtn.textContent = "\u2715";
+        removeBtn.title = "Remove";
+        removeBtn.addEventListener("click", () => {
+          ws.send(JSON.stringify({ type: "queue:remove", itemId: item.id }));
+        });
+        actions.appendChild(removeBtn);
+
+        el.appendChild(actions);
+      }
+
+      queueList.appendChild(el);
+    });
+  }
+
+  // --- Queue controls ---
+  queueAddBtn.addEventListener("click", () => {
+    const url = queueUrlInput.value.trim();
+    if (!url || !ws) return queueUrlInput.focus();
+    ws.send(JSON.stringify({ type: "queue:add", url }));
+    queueUrlInput.value = "";
+  });
+
+  queueUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") queueAddBtn.click();
+  });
+
+  skipBtn.addEventListener("click", () => {
+    if (ws && isDj) ws.send(JSON.stringify({ type: "queue:skip" }));
+  });
+
+  shuffleBtn.addEventListener("click", () => {
+    if (ws && isDj) ws.send(JSON.stringify({ type: "queue:shuffle" }));
   });
 
   // Auto-join if name already saved
