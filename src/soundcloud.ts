@@ -42,6 +42,9 @@ const OEMBED_TTL = 60 * 60 * 1000; // 1 hour
 const streamCache = new Map<string, CacheEntry<string>>();
 const STREAM_TTL = 10 * 60 * 1000; // 10 minutes (stream URLs expire)
 
+const playlistTrackCache = new Map<string, CacheEntry<string[]>>();
+const PLAYLIST_TRACK_TTL = 60 * 60 * 1000; // 1 hour
+
 // --- In-flight deduplication ---
 
 const inflightOembed = new Map<string, Promise<{ title: string; artwork: string | null }>>();
