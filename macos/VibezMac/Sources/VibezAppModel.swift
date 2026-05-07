@@ -1,6 +1,25 @@
 import AVFoundation
 import Foundation
 
+struct QueueItem: Identifiable, Equatable {
+  let id: String
+  let url: String
+  let title: String?
+  let artwork: String?
+  let addedBy: String
+
+  init?(from dict: [String: Any]) {
+    guard let id = dict["id"] as? String,
+          let url = dict["url"] as? String,
+          let addedBy = dict["addedBy"] as? String else { return nil }
+    self.id = id
+    self.url = url
+    self.title = dict["title"] as? String
+    self.artwork = dict["artwork"] as? String
+    self.addedBy = addedBy
+  }
+}
+
 @MainActor
 final class VibezAppModel: NSObject, ObservableObject {
   enum ConnectionState {
@@ -29,6 +48,8 @@ final class VibezAppModel: NSObject, ObservableObject {
   @Published private(set) var currentTime: Double = 0
   @Published private(set) var duration: Double = 0
   @Published private(set) var isDJ = false
+  @Published private(set) var queue: [QueueItem] = []
+  @Published var queueDraftURL = ""
   @Published var vibezLevel: Double = 0 {
     didSet {
       if vibezLevel < -1 || vibezLevel > 1 || !vibezLevel.isFinite {
@@ -168,6 +189,15 @@ final class VibezAppModel: NSObject, ObservableObject {
     min(1, baseVolume + vibezRange) - max(0, baseVolume - vibezRange)
   }
 
+  var queueSummary: String {
+    let count = queue.count
+    return count == 1 ? "1 track" : "\(count) tracks"
+  }
+
+  var nextUpTitle: String? {
+    queue.first?.title
+  }
+
   func saveConfiguration(_ configuration: VibezConfiguration) async throws {
     try await validate(configuration)
 
@@ -226,6 +256,29 @@ final class VibezAppModel: NSObject, ObservableObject {
   func setVibezLevel(_ value: Double) {
     vibezLevel = value
     send(["type": "vibez:boost", "boost": vibezLevel])
+  }
+
+  func addToQueue() {
+    let url = queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !url.isEmpty else { return }
+    send(["type": "queue:add", "url": url])
+    queueDraftURL = ""
+  }
+
+  func removeFromQueue(itemId: String) {
+    send(["type": "queue:remove", "itemId": itemId])
+  }
+
+  func skipQueue() {
+    send(["type": "queue:skip"])
+  }
+
+  func shuffleQueue() {
+    send(["type": "queue:shuffle"])
+  }
+
+  func reorderQueue(itemId: String, toIndex: Int) {
+    send(["type": "queue:reorder", "itemId": itemId, "toIndex": toIndex])
   }
 
   private func loadPersistedConfiguration() {
@@ -337,6 +390,8 @@ final class VibezAppModel: NSObject, ObservableObject {
       listeners = (message["names"] as? [String]) ?? []
     case "vibez":
       vibezLevel = clampSigned(message["boost"] as? Double ?? 0)
+    case "queue":
+      applyQueue(message)
     case "stream:refreshed":
       if let rawURL = message["streamUrl"] as? String {
         refreshPlayback(with: rawURL)
@@ -356,6 +411,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     listeners = (message["listeners"] as? [String]) ?? listeners
     vibezLevel = clampSigned(message["vibezBoost"] as? Double ?? 0)
     applyTrack(message)
+    applyQueue(message)
 
     let isSnapshotPlaying = message["isPlaying"] as? Bool ?? false
     if isSnapshotPlaying {
@@ -372,11 +428,24 @@ final class VibezAppModel: NSObject, ObservableObject {
     trackTitle = message["title"] as? String ?? message["trackTitle"] as? String
     trackArtworkURL = URL(string: (message["artwork"] as? String) ?? (message["trackArtwork"] as? String) ?? "")
 
+    if trackURLString == nil {
+      player.replaceCurrentItem(with: nil)
+      currentStreamURLString = nil
+      hasTrack = false
+      return
+    }
+
     if let streamString = (message["streamUrl"] as? String), !streamString.isEmpty {
       replacePlayerItemIfNeeded(streamString)
     }
 
     hasTrack = trackURLString != nil || currentStreamURLString != nil
+  }
+
+  private func applyQueue(_ message: [String: Any]) {
+    let key = message["items"] != nil ? "items" : "queue"
+    guard let rawItems = message[key] as? [[String: Any]] else { return }
+    queue = rawItems.compactMap { QueueItem(from: $0) }
   }
 
   private func handlePlay(_ message: [String: Any]) {
@@ -447,9 +516,11 @@ final class VibezAppModel: NSObject, ObservableObject {
   private func observePlaybackNotifications(for item: AVPlayerItem) {
     NotificationCenter.default.removeObserver(self, name: .AVPlayerItemPlaybackStalled, object: nil)
     NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: nil)
+    NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: nil)
 
     NotificationCenter.default.addObserver(self, selector: #selector(handlePlaybackStalled(_:)), name: .AVPlayerItemPlaybackStalled, object: item)
     NotificationCenter.default.addObserver(self, selector: #selector(handlePlaybackFailed(_:)), name: .AVPlayerItemFailedToPlayToEndTime, object: item)
+    NotificationCenter.default.addObserver(self, selector: #selector(handlePlaybackEnded(_:)), name: .AVPlayerItemDidPlayToEndTime, object: item)
   }
 
   @objc private func handlePlaybackStalled(_ notification: Notification) {
@@ -458,6 +529,11 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   @objc private func handlePlaybackFailed(_ notification: Notification) {
     requestStreamRefresh()
+  }
+
+  @objc private func handlePlaybackEnded(_ notification: Notification) {
+    guard let trackUrl = trackURLString else { return }
+    send(["type": "track:ended", "trackUrl": trackUrl])
   }
 
   private func requestStreamRefresh() {

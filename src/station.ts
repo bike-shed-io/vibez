@@ -3,6 +3,14 @@ export type Listener = {
   connectedAt: number;
 };
 
+export type QueueItem = {
+  id: string;
+  url: string;
+  title: string | null;
+  artwork: string | null;
+  addedBy: string;
+};
+
 export type Station = {
   djId: string | null;
   djName: string | null;
@@ -16,6 +24,7 @@ export type Station = {
   positionTimestamp: number;
   vibezBoost: number;
   listeners: Map<string, Listener>;
+  queue: QueueItem[];
 };
 
 export const station: Station = {
@@ -31,6 +40,7 @@ export const station: Station = {
   positionTimestamp: Date.now(),
   vibezBoost: 0,
   listeners: new Map(),
+  queue: [],
 };
 
 export function getSnapshot() {
@@ -45,6 +55,7 @@ export function getSnapshot() {
     positionTimestamp: station.positionTimestamp,
     vibezBoost: station.vibezBoost,
     listeners: listenerNames(),
+    queue: station.queue,
   };
 }
 
@@ -84,4 +95,49 @@ export function touchDjHeartbeat() {
 
 export function isDj(id: string): boolean {
   return station.djId === id;
+}
+
+export function addToQueue(item: QueueItem) {
+  station.queue.push(item);
+}
+
+export function removeFromQueue(itemId: string): boolean {
+  const idx = station.queue.findIndex((q) => q.id === itemId);
+  if (idx === -1) return false;
+  station.queue.splice(idx, 1);
+  return true;
+}
+
+export function reorderQueue(itemId: string, toIndex: number): boolean {
+  const fromIdx = station.queue.findIndex((q) => q.id === itemId);
+  if (fromIdx === -1) return false;
+  const clamped = Math.max(0, Math.min(station.queue.length - 1, toIndex));
+  const [item] = station.queue.splice(fromIdx, 1);
+  station.queue.splice(clamped, 0, item);
+  return true;
+}
+
+export function shuffleQueue() {
+  for (let i = station.queue.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [station.queue[i], station.queue[j]] = [station.queue[j], station.queue[i]];
+  }
+}
+
+export function popQueue(): QueueItem | undefined {
+  return station.queue.shift();
+}
+
+export function getQueueSnapshot(): QueueItem[] {
+  return station.queue;
+}
+
+export function clearPlayback() {
+  station.trackUrl = null;
+  station.trackTitle = null;
+  station.trackArtwork = null;
+  station.streamUrl = null;
+  station.isPlaying = false;
+  station.position = 0;
+  station.positionTimestamp = Date.now();
 }

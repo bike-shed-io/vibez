@@ -133,6 +133,24 @@
       </div>
     </div>
 
+    <!-- Queue -->
+    <div class="queue-section">
+      <div class="queue-header">
+        <div class="label">Queue (<span id="queueCount">0</span>)</div>
+        <div class="queue-dj-controls hidden" id="queueDjControls">
+          <button class="btn-small btn-secondary" id="skipBtn">Skip</button>
+          <button class="btn-small btn-secondary" id="shuffleBtn">Shuffle</button>
+        </div>
+      </div>
+      <div class="queue-add-row">
+        <input type="url" id="queueUrlInput" placeholder="Add SoundCloud URL to queue..." />
+        <button class="btn-primary" id="queueAddBtn">Add</button>
+      </div>
+      <div class="queue-list" id="queueList">
+        <div class="queue-empty" id="queueEmpty">Queue is empty</div>
+      </div>
+    </div>
+
     <!-- Listeners -->
     <div class="listeners">
       <div class="label">Listeners (<span id="listenerCount">0</span>)</div>

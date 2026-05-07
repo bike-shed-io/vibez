@@ -1,6 +1,12 @@
 import type { WSContext } from "hono/ws";
 import { notifications } from "./notifications";
-import { station, getSnapshot, setTrack, claimDj, releaseDj, isDj, listenerNames, listenerCount, touchDjHeartbeat } from "./station";
+import {
+  station, getSnapshot, setTrack, claimDj, releaseDj, isDj,
+  listenerNames, listenerCount, touchDjHeartbeat,
+  addToQueue, removeFromQueue, reorderQueue, shuffleQueue,
+  popQueue, getQueueSnapshot, clearPlayback,
+  type QueueItem,
+} from "./station";
 import { fetchTrackMeta, resolveStreamUrl } from "./soundcloud";
 
 type Conn = {
@@ -29,6 +35,46 @@ function broadcast(msg: object, exclude?: string) {
 
 function broadcastListeners() {
   broadcast({ type: "listeners", count: listenerCount(), names: listenerNames() });
+}
+
+function broadcastQueue() {
+  broadcast({ type: "queue", items: getQueueSnapshot() });
+}
+
+const MAX_SKIP_ATTEMPTS = 5;
+
+async function playNextFromQueue(depth = 0): Promise<void> {
+  if (depth >= MAX_SKIP_ATTEMPTS) {
+    console.warn("[queue] Gave up after skipping", depth, "unplayable tracks");
+    clearPlayback();
+    broadcast({ type: "track", url: null, title: null, artwork: null, streamUrl: null });
+    broadcast({ type: "pause", position: 0 });
+    broadcastQueue();
+    return;
+  }
+
+  const next = popQueue();
+  if (!next) {
+    clearPlayback();
+    broadcast({ type: "track", url: null, title: null, artwork: null, streamUrl: null });
+    broadcast({ type: "pause", position: 0 });
+    broadcastQueue();
+    return;
+  }
+
+  let streamUrl: string | null = null;
+  try {
+    streamUrl = await resolveStreamUrl(next.url);
+  } catch (err) {
+    console.error(`[queue] Skipping "${next.title}" (${next.url}):`, err);
+    broadcastQueue();
+    return playNextFromQueue(depth + 1);
+  }
+
+  setTrack(next.url, next.title, next.artwork, streamUrl);
+  broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
+  broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
+  broadcastQueue();
 }
 
 export function handleOpen(ws: WSContext, id: string) {
@@ -187,6 +233,83 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       break;
     }
 
+    case "queue:add": {
+      if (!station.listeners.has(id)) return;
+      const url = String(msg.url || "").trim();
+      if (!url) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "URL is required" }));
+        return;
+      }
+      const item: QueueItem = {
+        id: crypto.randomUUID(),
+        url,
+        title: null,
+        artwork: null,
+        addedBy: conn.name,
+      };
+      addToQueue(item);
+      broadcastQueue();
+      fetchTrackMeta(url).then((meta) => {
+        item.title = meta.title;
+        item.artwork = meta.artwork;
+        broadcastQueue();
+      }).catch(() => {});
+      break;
+    }
+
+    case "queue:remove": {
+      if (!isDj(id)) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can remove queue items" }));
+        return;
+      }
+      const itemId = String(msg.itemId || "");
+      if (removeFromQueue(itemId)) {
+        broadcastQueue();
+      }
+      break;
+    }
+
+    case "queue:reorder": {
+      if (!isDj(id)) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can reorder the queue" }));
+        return;
+      }
+      const reorderId = String(msg.itemId || "");
+      const toIndex = Number(msg.toIndex ?? -1);
+      if (reorderQueue(reorderId, toIndex)) {
+        broadcastQueue();
+      }
+      break;
+    }
+
+    case "queue:shuffle": {
+      if (!isDj(id)) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can shuffle the queue" }));
+        return;
+      }
+      shuffleQueue();
+      broadcastQueue();
+      break;
+    }
+
+    case "queue:skip": {
+      if (!isDj(id)) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can skip tracks" }));
+        return;
+      }
+      touchDjHeartbeat();
+      await playNextFromQueue();
+      break;
+    }
+
+    case "track:ended": {
+      const endedUrl = String(msg.trackUrl || "");
+      if (endedUrl && endedUrl !== station.trackUrl) return;
+      if (station.queue.length === 0) return;
+      await playNextFromQueue();
+      break;
+    }
+
     default:
       conn.ws.send(JSON.stringify({ type: "error", message: `Unknown message type: ${msg.type}` }));
   }
@@ -215,4 +338,27 @@ export async function playFromSlack(url: string): Promise<{ title: string | null
   broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
   broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
   return { title, artwork };
+}
+
+export async function queueFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; position: number }> {
+  let title: string | null = null;
+  let artwork: string | null = null;
+  try {
+    const meta = await fetchTrackMeta(url);
+    title = meta.title;
+    artwork = meta.artwork;
+  } catch {
+    // Proceed without metadata
+  }
+
+  const item: QueueItem = {
+    id: crypto.randomUUID(),
+    url,
+    title,
+    artwork,
+    addedBy,
+  };
+  addToQueue(item);
+  broadcastQueue();
+  return { title, artwork, position: station.queue.length };
 }

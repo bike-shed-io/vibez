@@ -149,6 +149,43 @@ struct MenuBarContentView: View {
 
         VStack(alignment: .leading, spacing: 8) {
           HStack {
+            Text("Queue")
+              .font(.caption.weight(.semibold))
+              .textCase(.uppercase)
+              .foregroundStyle(.secondary)
+            Spacer()
+            Text(appModel.queueSummary)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
+          if let nextTitle = appModel.nextUpTitle {
+            Text("Next: \(nextTitle)")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+
+          HStack(spacing: 6) {
+            TextField("Add to queue…", text: $appModel.queueDraftURL)
+              .textFieldStyle(.roundedBorder)
+              .font(.caption)
+              .onSubmit { appModel.addToQueue() }
+              .disabled(!appModel.isRoomConnected)
+
+            Button("Add") {
+              appModel.addToQueue()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(!appModel.isRoomConnected || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          }
+        }
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+          HStack {
             Text("Your Mix")
               .font(.caption.weight(.semibold))
               .textCase(.uppercase)

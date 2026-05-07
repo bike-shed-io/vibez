@@ -1,7 +1,7 @@
 import bolt from "@slack/bolt";
 const { App } = bolt;
 import { station, getSnapshot, listenerCount, listenerNames, claimDj, releaseDj } from "./station";
-import { playFromSlack } from "./ws";
+import { playFromSlack, queueFromSlack } from "./ws";
 
 let slackApp: InstanceType<typeof App> | null = null;
 
@@ -117,9 +117,63 @@ export async function startSlack() {
         break;
       }
 
+      case "queue": {
+        const url = args[1];
+        if (!url) {
+          if (station.queue.length === 0) {
+            await respond({ response_type: "ephemeral", text: "The queue is empty. Use `/radio queue <soundcloud-url>` to add a track." });
+            return;
+          }
+          const lines = station.queue.map((item, i) =>
+            `${i + 1}. *${item.title || "Unknown Track"}* — added by ${item.addedBy}`
+          );
+          await respond({
+            response_type: "ephemeral",
+            text: `:musical_note: *Queue (${station.queue.length} track${station.queue.length === 1 ? "" : "s"})*\n${lines.join("\n")}`,
+          });
+          return;
+        }
+
+        const { title, artwork, position } = await queueFromSlack(url, command.user_name);
+
+        await respond({
+          response_type: "in_channel",
+          blocks: [
+            {
+              type: "section",
+              text: {
+                type: "mrkdwn",
+                text: `:musical_note: *Queued on Team Radio*\n*${title || "Unknown Track"}* — #${position} in queue\nAdded by ${command.user_name}`,
+              },
+              ...(artwork
+                ? {
+                    accessory: {
+                      type: "image",
+                      image_url: artwork,
+                      alt_text: title || "Track artwork",
+                    },
+                  }
+                : {}),
+            },
+            {
+              type: "actions",
+              elements: [
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Tune In" },
+                  url: radioUrl,
+                  action_id: "tune_in",
+                },
+              ],
+            },
+          ],
+        });
+        break;
+      }
+
       default:
         await respond(
-          "Usage:\n• `/radio play <soundcloud-url>` — play a track\n• `/radio stop` — stop the radio\n• `/radio np` — now playing\n• `/radio listeners` — who's tuned in"
+          "Usage:\n• `/radio play <soundcloud-url>` — play a track\n• `/radio queue <soundcloud-url>` — add a track to the queue\n• `/radio queue` — show the current queue\n• `/radio stop` — stop the radio\n• `/radio np` — now playing\n• `/radio listeners` — who's tuned in"
         );
     }
   });

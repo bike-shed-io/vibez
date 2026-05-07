@@ -51,6 +51,7 @@ struct MainWindowView: View {
         nowPlayingCard
         listenerMixCard
         djCard
+        queueCard
         listenersCard
       }
       .padding(20)
@@ -344,6 +345,128 @@ struct MainWindowView: View {
             .buttonStyle(.bordered)
             .disabled(!appModel.isDJ || !appModel.hasTrack)
           }
+        }
+      }
+    }
+  }
+
+  private var queueCard: some View {
+    card {
+      VStack(alignment: .leading, spacing: 12) {
+        HStack {
+          Text("Queue")
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+          Spacer()
+          Text(appModel.queueSummary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        HStack(spacing: 8) {
+          TextField("Add SoundCloud URL to queue…", text: $appModel.queueDraftURL)
+            .textFieldStyle(.roundedBorder)
+            .onSubmit { appModel.addToQueue() }
+            .disabled(!appModel.isRoomConnected)
+
+          Button("Add") {
+            appModel.addToQueue()
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!appModel.isRoomConnected || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+
+        if appModel.isDJ {
+          HStack(spacing: 8) {
+            Button {
+              appModel.skipQueue()
+            } label: {
+              Label("Skip", systemImage: "forward.fill")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!appModel.isRoomConnected || appModel.queue.isEmpty)
+
+            Button {
+              appModel.shuffleQueue()
+            } label: {
+              Label("Shuffle", systemImage: "shuffle")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!appModel.isRoomConnected || appModel.queue.count < 2)
+          }
+        }
+
+        if appModel.queue.isEmpty {
+          Text("Queue is empty")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        } else {
+          ScrollView {
+            VStack(spacing: 6) {
+              ForEach(Array(appModel.queue.enumerated()), id: \.element.id) { index, item in
+                HStack(spacing: 10) {
+                  Text("\(index + 1)")
+                    .font(.caption.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20)
+
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title ?? "Unknown Track")
+                      .font(.caption.weight(.semibold))
+                      .lineLimit(1)
+                    Text("added by \(item.addedBy)")
+                      .font(.caption2)
+                      .foregroundStyle(.secondary)
+                  }
+
+                  Spacer()
+
+                  if appModel.isDJ {
+                    if index > 0 {
+                      Button {
+                        appModel.reorderQueue(itemId: item.id, toIndex: index - 1)
+                      } label: {
+                        Image(systemName: "chevron.up")
+                          .font(.caption2)
+                      }
+                      .buttonStyle(.borderless)
+                    }
+
+                    if index < appModel.queue.count - 1 {
+                      Button {
+                        appModel.reorderQueue(itemId: item.id, toIndex: index + 1)
+                      } label: {
+                        Image(systemName: "chevron.down")
+                          .font(.caption2)
+                      }
+                      .buttonStyle(.borderless)
+                    }
+
+                    Button {
+                      appModel.removeFromQueue(itemId: item.id)
+                    } label: {
+                      Image(systemName: "xmark")
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.borderless)
+                  }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.white.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                  RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                )
+              }
+            }
+          }
+          .frame(maxHeight: 220)
         }
       }
     }
