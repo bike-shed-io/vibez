@@ -276,6 +276,16 @@ struct MenuBarContentView: View {
             .foregroundStyle(.secondary)
         }
 
+        HStack {
+          Text("AirPlay")
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+          Spacer()
+          AirPlayPickerView()
+            .frame(width: 22, height: 22)
+        }
+
         if let errorMessage = appModel.errorMessage, !errorMessage.isEmpty {
           Text(errorMessage)
             .font(.caption)

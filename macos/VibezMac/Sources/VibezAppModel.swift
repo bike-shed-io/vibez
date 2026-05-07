@@ -427,6 +427,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func configurePlayer() {
+    player.allowsExternalPlayback = true
     applyVolume()
 
     timeObserverToken = player.addPeriodicTimeObserver(

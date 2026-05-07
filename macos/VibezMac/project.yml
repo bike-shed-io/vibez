@@ -28,3 +28,4 @@ targets:
         CODE_SIGN_STYLE: Automatic
     dependencies:
       - sdk: WebKit.framework
+      - sdk: AVKit.framework

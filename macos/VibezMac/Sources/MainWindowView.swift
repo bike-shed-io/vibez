@@ -272,6 +272,15 @@ struct MainWindowView: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
         }
+
+        HStack {
+          Text("AirPlay Output")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+          Spacer()
+          AirPlayPickerView()
+            .frame(width: 26, height: 26)
+        }
       }
     }
   }
