@@ -1,5 +1,4 @@
-import bolt from "@slack/bolt";
-const { App } = bolt;
+import { App } from "@slack/bolt";
 import { station, getSnapshot, listenerCount, listenerNames, claimDj, releaseDj } from "./station";
 import { playFromSlack, queueFromSlack } from "./ws";
 
