@@ -164,9 +164,82 @@ export function clearCachedClientId() {
   // Don't clear disk cache here — the retry logic will re-scrape if needed
 }
 
-// --- Stream URL resolution ---
+// --- Shared sentinel for auth retries ---
 
 const NEEDS_RETRY = Symbol("needs_retry");
+
+// --- Playlist / track resolution ---
+
+export type TrackRef = {
+  url: string;
+  title: string | null;
+  artwork: string | null;
+};
+
+/**
+ * Resolve a SoundCloud URL to one or more track references.
+ * Single-track URLs return a one-element array; playlist/set URLs return all tracks.
+ */
+export async function resolveTracks(url: string): Promise<TrackRef[]> {
+  async function attempt(): Promise<TrackRef[] | typeof NEEDS_RETRY> {
+    const clientId = await getClientId();
+
+    const endpoint = `https://api-v2.soundcloud.com/resolve?url=${encodeURIComponent(url)}&client_id=${clientId}`;
+    const res = await fetch(endpoint, {
+      headers: { "User-Agent": USER_AGENT },
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      clearCachedClientId();
+      return NEEDS_RETRY;
+    }
+    if (!res.ok) {
+      throw new Error(`SoundCloud resolve failed: ${res.status}`);
+    }
+
+    const resolved = (await res.json()) as any;
+    const kind = resolved?.kind;
+
+    if (kind === "track") {
+      return [{
+        url: resolved.permalink_url ?? url,
+        title: resolved.title ?? null,
+        artwork: resolved.artwork_url ?? null,
+      }];
+    }
+
+    if (kind === "playlist") {
+      const rawTracks: any[] = Array.isArray(resolved.tracks) ? resolved.tracks : [];
+      const refs: TrackRef[] = rawTracks
+        .filter((t: any) => typeof t?.permalink_url === "string" && t.permalink_url.length > 0)
+        .map((t: any) => ({
+          url: t.permalink_url,
+          title: t.title ?? null,
+          artwork: t.artwork_url ?? null,
+        }));
+
+      if (refs.length === 0) {
+        throw new Error("Playlist has no playable tracks.");
+      }
+      return refs;
+    }
+
+    throw new Error(
+      `Unsupported SoundCloud resource ("${kind ?? "unknown"}"). Use a track link or a playlist/set link.`,
+    );
+  }
+
+  const result = await attempt();
+  if (result !== NEEDS_RETRY) return result;
+
+  console.warn("[soundcloud] Retrying resolveTracks with fresh client_id");
+  const retryResult = await attempt();
+  if (retryResult !== NEEDS_RETRY) return retryResult;
+
+  throw new Error("SoundCloud resolve failed after retry (auth error)");
+}
+
+// --- Stream URL resolution ---
 
 /** First playlist entry that includes stream metadata (full hydration). */
 function firstHydratedPlaylistTrack(tracks: unknown): any | null {
