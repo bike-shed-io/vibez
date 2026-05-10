@@ -51,7 +51,10 @@ export async function startSlack() {
           claimDj(`slack:${command.user_id}`, command.user_name);
         }
 
-        const { title, artwork } = await playFromSlack(url);
+        const { title, artwork, count } = await playFromSlack(url, command.user_name);
+        const playLabel = count > 1
+          ? `*${title || "Unknown Track"}* (playlist — ${count} tracks)`
+          : `*${title || "Unknown Track"}*`;
 
         await respond({
           response_type: "in_channel",
@@ -60,7 +63,7 @@ export async function startSlack() {
               type: "section",
               text: {
                 type: "mrkdwn",
-                text: `:radio: *Now Playing on Team Radio*\n*${title || "Unknown Track"}*\nDJ: ${station.djName || command.user_name}`,
+                text: `:radio: *Now Playing on Team Radio*\n${playLabel}\nDJ: ${station.djName || command.user_name}`,
               },
               ...(artwork
                 ? {
@@ -146,7 +149,10 @@ export async function startSlack() {
           return;
         }
 
-        const { title, artwork, position } = await queueFromSlack(url, command.user_name);
+        const { title, artwork, position, count } = await queueFromSlack(url, command.user_name);
+        const queueLabel = count > 1
+          ? `*${title || "Unknown Track"}* (playlist — ${count} tracks queued)`
+          : `*${title || "Unknown Track"}* — #${position} in queue`;
 
         await respond({
           response_type: "in_channel",
@@ -155,7 +161,7 @@ export async function startSlack() {
               type: "section",
               text: {
                 type: "mrkdwn",
-                text: `:musical_note: *Queued on Team Radio*\n*${title || "Unknown Track"}* — #${position} in queue\nAdded by ${command.user_name}`,
+                text: `:musical_note: *Queued on Team Radio*\n${queueLabel}\nAdded by ${command.user_name}`,
               },
               ...(artwork
                 ? {

@@ -7,7 +7,7 @@ import {
   popQueue, getQueueSnapshot, clearPlayback,
   type QueueItem,
 } from "./station";
-import { fetchTrackMeta, resolveStreamUrl } from "./soundcloud";
+import { resolveStreamUrl, resolveTracks } from "./soundcloud";
 
 type Conn = {
   id: string;
@@ -157,26 +157,38 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const url = String(msg.url || "");
       if (!url) return;
 
-      let title: string | null = null;
-      let artwork: string | null = null;
+      let tracks;
       try {
-        const meta = await fetchTrackMeta(url);
-        title = meta.title;
-        artwork = meta.artwork;
-      } catch {
-        // Proceed without metadata
+        tracks = await resolveTracks(url);
+      } catch (err: any) {
+        conn.ws.send(JSON.stringify({ type: "error", message: err?.message ?? "Failed to resolve URL" }));
+        return;
       }
 
+      const first = tracks[0];
       let streamUrl: string | null = null;
       try {
-        streamUrl = await resolveStreamUrl(url);
+        streamUrl = await resolveStreamUrl(first.url);
       } catch (err) {
         console.error("[ws] resolveStreamUrl failed:", err);
       }
 
-      setTrack(url, title, artwork, streamUrl);
+      setTrack(first.url, first.title, first.artwork, streamUrl);
       broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
       broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
+
+      for (const t of tracks.slice(1)) {
+        addToQueue({
+          id: crypto.randomUUID(),
+          url: t.url,
+          title: t.title,
+          artwork: t.artwork,
+          addedBy: conn.name,
+        });
+      }
+      if (tracks.length > 1) {
+        broadcastQueue();
+      }
       break;
     }
 
@@ -240,20 +252,25 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
         conn.ws.send(JSON.stringify({ type: "error", message: "URL is required" }));
         return;
       }
-      const item: QueueItem = {
-        id: crypto.randomUUID(),
-        url,
-        title: null,
-        artwork: null,
-        addedBy: conn.name,
-      };
-      addToQueue(item);
+
+      let tracks;
+      try {
+        tracks = await resolveTracks(url);
+      } catch (err: any) {
+        conn.ws.send(JSON.stringify({ type: "error", message: err?.message ?? "Failed to resolve URL" }));
+        return;
+      }
+
+      for (const t of tracks) {
+        addToQueue({
+          id: crypto.randomUUID(),
+          url: t.url,
+          title: t.title,
+          artwork: t.artwork,
+          addedBy: conn.name,
+        });
+      }
       broadcastQueue();
-      fetchTrackMeta(url).then((meta) => {
-        item.title = meta.title;
-        item.artwork = meta.artwork;
-        broadcastQueue();
-      }).catch(() => {});
       break;
     }
 
@@ -318,49 +335,50 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 }
 
 // Called by Slack bot to play a track without a WS connection
-export async function playFromSlack(url: string): Promise<{ title: string | null; artwork: string | null }> {
-  let title: string | null = null;
-  let artwork: string | null = null;
-  try {
-    const meta = await fetchTrackMeta(url);
-    title = meta.title;
-    artwork = meta.artwork;
-  } catch {
-    // Proceed without metadata
-  }
+export async function playFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; count: number }> {
+  const tracks = await resolveTracks(url);
 
+  const first = tracks[0];
   let streamUrl: string | null = null;
   try {
-    streamUrl = await resolveStreamUrl(url);
+    streamUrl = await resolveStreamUrl(first.url);
   } catch (err) {
     console.error("[ws] resolveStreamUrl failed in playFromSlack:", err);
   }
 
-  setTrack(url, title, artwork, streamUrl);
+  setTrack(first.url, first.title, first.artwork, streamUrl);
   broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
   broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
-  return { title, artwork };
-}
 
-export async function queueFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; position: number }> {
-  let title: string | null = null;
-  let artwork: string | null = null;
-  try {
-    const meta = await fetchTrackMeta(url);
-    title = meta.title;
-    artwork = meta.artwork;
-  } catch {
-    // Proceed without metadata
+  for (const t of tracks.slice(1)) {
+    addToQueue({
+      id: crypto.randomUUID(),
+      url: t.url,
+      title: t.title,
+      artwork: t.artwork,
+      addedBy,
+    });
+  }
+  if (tracks.length > 1) {
+    broadcastQueue();
   }
 
-  const item: QueueItem = {
-    id: crypto.randomUUID(),
-    url,
-    title,
-    artwork,
-    addedBy,
-  };
-  addToQueue(item);
+  return { title: first.title, artwork: first.artwork, count: tracks.length };
+}
+
+export async function queueFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; position: number; count: number }> {
+  const tracks = await resolveTracks(url);
+
+  for (const t of tracks) {
+    addToQueue({
+      id: crypto.randomUUID(),
+      url: t.url,
+      title: t.title,
+      artwork: t.artwork,
+      addedBy,
+    });
+  }
   broadcastQueue();
-  return { title, artwork, position: station.queue.length };
+
+  return { title: tracks[0].title, artwork: tracks[0].artwork, position: station.queue.length, count: tracks.length };
 }
