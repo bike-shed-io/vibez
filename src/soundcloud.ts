@@ -210,13 +210,52 @@ export async function resolveTracks(url: string): Promise<TrackRef[]> {
 
     if (kind === "playlist") {
       const rawTracks: any[] = Array.isArray(resolved.tracks) ? resolved.tracks : [];
-      const refs: TrackRef[] = rawTracks
-        .filter((t: any) => typeof t?.permalink_url === "string" && t.permalink_url.length > 0)
-        .map((t: any) => ({
-          url: t.permalink_url,
-          title: t.title ?? null,
-          artwork: t.artwork_url ?? null,
-        }));
+
+      // SoundCloud only hydrates ~5 tracks inline; the rest are stubs with just {id, kind}.
+      // Batch-fetch the stubs via /tracks?ids= and merge them back in playlist order.
+      const stubIds = rawTracks
+        .filter((t: any) => !(typeof t?.permalink_url === "string" && t.permalink_url.length > 0))
+        .map((t: any) => t.id)
+        .filter((id: any) => typeof id === "number");
+
+      let hydratedById = new Map<number, any>();
+      if (stubIds.length > 0) {
+        const batches: number[][] = [];
+        for (let i = 0; i < stubIds.length; i += 50) {
+          batches.push(stubIds.slice(i, i + 50));
+        }
+        for (const batch of batches) {
+          const idsParam = batch.join(",");
+          const tracksEndpoint = `https://api-v2.soundcloud.com/tracks?ids=${idsParam}&client_id=${clientId}`;
+          try {
+            const tracksRes = await fetch(tracksEndpoint, {
+              headers: { "User-Agent": USER_AGENT },
+            });
+            if (tracksRes.ok) {
+              const hydrated = (await tracksRes.json()) as any[];
+              for (const t of hydrated) {
+                if (t?.id) hydratedById.set(t.id, t);
+              }
+            }
+          } catch {
+            // Best-effort — stubs that fail to hydrate are skipped below
+          }
+        }
+      }
+
+      const refs: TrackRef[] = [];
+      for (const t of rawTracks) {
+        const track = (typeof t?.permalink_url === "string" && t.permalink_url.length > 0)
+          ? t
+          : hydratedById.get(t.id);
+        if (track?.permalink_url) {
+          refs.push({
+            url: track.permalink_url,
+            title: track.title ?? null,
+            artwork: track.artwork_url ?? null,
+          });
+        }
+      }
 
       if (refs.length === 0) {
         throw new Error("Playlist has no playable tracks.");
