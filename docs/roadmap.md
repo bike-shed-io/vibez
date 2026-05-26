@@ -36,8 +36,7 @@ This document is the shared project memory for agents and humans working on Vibe
    - menu bar popover stays usable at a fixed size
    - avoid stale app instances during local iteration
 2. Improve release workflow:
-   - one-command mac release script
-   - cask bump automation
+   - monitor automated macOS release workflow for reliability
    - document cask token migration from `vibez-mac` to `vibez`
 3. Improve auth:
    - short term: store local mac app auth in Keychain instead of app defaults
@@ -59,8 +58,9 @@ This document is the shared project memory for agents and humans working on Vibe
 - Build local mac app: `make macos-build`.
 - Run local mac app: `make macos-run`.
 - Deploy backend/web: `make deploy` or `OP_ACCOUNT=my.1password.eu bash scripts/deploy.sh` if the default 1Password account is ambiguous.
-- Do not release a new cask until manual testing is complete and the user explicitly asks for release.
-- When releasing mac app, build from latest committed `vibez` source, upload zip to `bike-shed-io/homebrew-vibez`, update cask SHA/version, verify with `brew info --cask vibez`, and post a Slack webhook release note with `brew update && brew upgrade --cask vibez`.
+- Backend/web deploys are automated by `.github/workflows/deploy.yml` on pushes to `main`.
+- Mac app releases are automated by `.github/workflows/release-mac.yml` when `macos/**`, `src/station.ts`, or `src/ws.ts` changes on `main`, and can be manually dispatched.
+- The Mac release workflow builds the app, publishes a `homebrew-vibez` release, bumps casks, and posts a Slack release note with `brew update && brew upgrade --cask vibez`.
 
 ## Open Questions
 

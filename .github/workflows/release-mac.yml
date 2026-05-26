@@ -1,0 +1,135 @@
+# Build and publish Vibez for Mac.
+#
+# Required GitHub Secrets:
+#   HOMEBREW_TAP_TOKEN             - GitHub token with access to bike-shed-io/homebrew-vibez
+#   SLACK_NOTIFICATIONS_WEBHOOK_URL - Optional Slack incoming webhook for release notifications
+
+name: Release Mac App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'macos/**'
+      - 'src/station.ts'
+      - 'src/ws.ts'
+
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release Vibez for Mac
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Compute next version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          latest="$(gh release list --repo bike-shed-io/homebrew-vibez --limit 1 --json tagName --jq '.[0].tagName // "v0.1.0"')"
+          latest="${latest#v}"
+          IFS='.' read -r major minor patch <<< "$latest"
+          next="${major}.${minor}.$((patch + 1))"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+          echo "Next release: v$next"
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec macos/VibezMac/project.yml
+
+      - name: Build release app
+        run: |
+          xcodebuild \
+            -project macos/VibezMac/VibezMac.xcodeproj \
+            -scheme VibezMac \
+            -configuration Release \
+            -derivedDataPath .build/VibezMac \
+            -destination 'generic/platform=macOS' \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package app
+        id: package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          zip_path="dist/Vibez-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            ".build/VibezMac/Build/Products/Release/Vibez.app" \
+            "$zip_path"
+          sha="$(shasum -a 256 "$zip_path" | awk '{print $1}')"
+          echo "zip_path=$zip_path" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "SHA256: $sha"
+
+      - name: Create GitHub release in Homebrew tap repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+        run: |
+          gh release create "$TAG" "$ZIP_PATH" \
+            --repo bike-shed-io/homebrew-vibez \
+            --title "$TAG" \
+            --notes "Vibez for Mac automated release $TAG."
+
+      - name: Bump Homebrew casks
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git config --global url."https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/".insteadOf "https://github.com/"
+          git clone https://github.com/bike-shed-io/homebrew-vibez.git tap
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for cask in Casks/vibez.rb Casks/vibez-mac.rb; do
+            ruby -pi -e 'gsub(/version "[^"]+"/, "version \"#{ENV.fetch("VERSION")}\"")' "$cask"
+            ruby -pi -e 'gsub(/sha256 "[^"]+"/, "sha256 \"#{ENV.fetch("SHA256")}\"")' "$cask"
+          done
+
+          ruby -c Casks/vibez.rb
+          ruby -c Casks/vibez-mac.rb
+
+          git add Casks/vibez.rb Casks/vibez-mac.rb
+          git commit -m "chore: release vibez for mac v${VERSION}"
+          git push origin main
+
+      - name: Notify Slack
+        env:
+          SLACK_NOTIFICATIONS_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SLACK_NOTIFICATIONS_WEBHOOK_URL" ]; then
+            echo "Slack notifications webhook not configured; skipping"
+            exit 0
+          fi
+          python3 - <<'PY' > /tmp/vibez-release-slack-payload.json
+          import json
+          import os
+
+          tag = os.environ["TAG"]
+          print(json.dumps({
+              "text": f":sparkles: Vibez for Mac {tag} is available\nUpdate with: `brew update && brew upgrade --cask vibez`"
+          }))
+          PY
+          curl -sf -X POST "$SLACK_NOTIFICATIONS_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/vibez-release-slack-payload.json \
+            || echo "Slack release notification failed"

@@ -31,5 +31,6 @@ Read this first when working on Vibez.
 - Homebrew tap name is `bike-shed-io/vibez`.
 - Preferred install UX is `brew tap bike-shed-io/vibez && brew install --cask vibez`.
 - Keep `vibez-mac` cask compatibility until explicitly migrated away.
-- Do not cut a macOS release unless the user explicitly asks.
-- When a release is scheduled or completed, post a Slack webhook message to the Vibez channel with the version, short summary, and update command: `brew update && brew upgrade --cask vibez`.
+- Backend/web deploys run from `.github/workflows/deploy.yml` on pushes to `main`.
+- Vibez for Mac releases run from `.github/workflows/release-mac.yml` on `main` changes touching `macos/**`, `src/station.ts`, or `src/ws.ts`, and can also be triggered manually.
+- The Mac release workflow builds the app, creates a `homebrew-vibez` release, bumps both casks, and posts the Slack update command: `brew update && brew upgrade --cask vibez`.
