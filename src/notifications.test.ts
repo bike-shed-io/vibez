@@ -82,6 +82,32 @@ describe("notification service", () => {
     expect(sent[0].text).toBe(":headphones: Patrick is DJing on Vibez");
   });
 
+  test("dedupes repeated DJ start notifications within the dedupe window", async () => {
+    const sent: any[] = [];
+    let currentTime = 1_000;
+    const service = createNotificationService({
+      webhookUrl: "https://hooks.slack.com/services/test",
+      radioUrl: "https://vibez.bike-shed.io",
+      dedupeWindowMs: 1_000,
+      now: () => currentTime,
+      postJson: async (_url, payload) => {
+        sent.push(payload);
+      },
+    });
+
+    await service.notifyDjStarted("Patrick");
+    await service.notifyDjStarted("patrick ");
+    currentTime += 999;
+    await service.notifyDjStarted("Patrick");
+    currentTime += 1;
+    await service.notifyDjStarted("Patrick");
+
+    expect(sent.map((payload) => payload.text)).toEqual([
+      ":headphones: Patrick is DJing on Vibez",
+      ":headphones: Patrick is DJing on Vibez",
+    ]);
+  });
+
   test("join batch can be flushed repeatedly", async () => {
     const sent: any[] = [];
     const service = createNotificationService({
@@ -100,6 +126,33 @@ describe("notification service", () => {
     expect(sent.map((payload) => payload.text)).toEqual([
       ":radio: Patrick joined Vibez",
       ":radio: Lisa joined Vibez",
+    ]);
+  });
+
+  test("dedupes listener joins after a batch is sent", async () => {
+    const sent: any[] = [];
+    let currentTime = 1_000;
+    const service = createNotificationService({
+      webhookUrl: "https://hooks.slack.com/services/test",
+      radioUrl: "https://vibez.bike-shed.io",
+      dedupeWindowMs: 1_000,
+      now: () => currentTime,
+      postJson: async (_url, payload) => {
+        sent.push(payload);
+      },
+    });
+
+    service.notifyListenerJoined("Patrick");
+    await service.flushJoinedListeners();
+    service.notifyListenerJoined("patrick ");
+    await service.flushJoinedListeners();
+    currentTime += 1_000;
+    service.notifyListenerJoined("Patrick");
+    await service.flushJoinedListeners();
+
+    expect(sent.map((payload) => payload.text)).toEqual([
+      ":radio: Patrick joined Vibez",
+      ":radio: Patrick joined Vibez",
     ]);
   });
 

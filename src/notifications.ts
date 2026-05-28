@@ -9,6 +9,8 @@ type NotificationServiceOptions = {
   webhookUrl?: string;
   radioUrl?: string;
   joinWindowMs?: number;
+  dedupeWindowMs?: number;
+  now?: () => number;
   postJson?: (url: string, payload: SlackPayload) => Promise<void>;
   setTimer?: (callback: () => void, ms: number) => TimerHandle;
   clearTimer?: (handle: TimerHandle) => void;
@@ -22,6 +24,7 @@ type NotificationService = {
 };
 
 const DEFAULT_JOIN_WINDOW_MS = 60_000;
+const DEFAULT_DEDUPE_WINDOW_MS = 10 * 60_000;
 const DEFAULT_RADIO_URL = "http://localhost:3000";
 
 export function formatJoinedNames(names: string[]): string {
@@ -33,6 +36,10 @@ export function formatJoinedNames(names: string[]): string {
 
 function trimName(name: string): string {
   return name.trim() || "Someone";
+}
+
+function notificationKey(type: "listener" | "dj", name: string): string {
+  return `${type}:${trimName(name).toLowerCase()}`;
 }
 
 function slackMessage(text: string, radioUrl: string): SlackPayload {
@@ -83,6 +90,8 @@ export function createNotificationService(options: NotificationServiceOptions = 
   const webhookUrl = options.webhookUrl ?? process.env.SLACK_NOTIFICATIONS_WEBHOOK_URL ?? "";
   const radioUrl = options.radioUrl ?? process.env.RADIO_URL ?? DEFAULT_RADIO_URL;
   const joinWindowMs = options.joinWindowMs ?? DEFAULT_JOIN_WINDOW_MS;
+  const dedupeWindowMs = options.dedupeWindowMs ?? DEFAULT_DEDUPE_WINDOW_MS;
+  const now = options.now ?? Date.now;
   const postJson = options.postJson ?? defaultPostJson;
   const schedule = options.setTimer ?? setTimeout;
   const cancel = options.clearTimer ?? clearTimeout;
@@ -90,7 +99,8 @@ export function createNotificationService(options: NotificationServiceOptions = 
 
   let loggedDisabled = false;
   let joinTimer: TimerHandle | null = null;
-  let pendingJoinNames = new Set<string>();
+  let pendingJoinNames = new Map<string, string>();
+  const recentNotifications = new Map<string, number>();
 
   function enabled(): boolean {
     if (webhookUrl) return true;
@@ -101,12 +111,34 @@ export function createNotificationService(options: NotificationServiceOptions = 
     return false;
   }
 
-  async function send(payload: SlackPayload): Promise<void> {
-    if (!enabled()) return;
+  function wasRecentlySent(key: string): boolean {
+    if (dedupeWindowMs <= 0) return false;
+
+    const sentAt = recentNotifications.get(key);
+    if (sentAt === undefined) return false;
+
+    if (now() - sentAt >= dedupeWindowMs) {
+      recentNotifications.delete(key);
+      return false;
+    }
+
+    return true;
+  }
+
+  function markSent(key: string) {
+    if (dedupeWindowMs > 0) {
+      recentNotifications.set(key, now());
+    }
+  }
+
+  async function send(payload: SlackPayload): Promise<boolean> {
+    if (!enabled()) return false;
     try {
       await postJson(webhookUrl, payload);
+      return true;
     } catch (err) {
       logger.warn("[notifications] Slack webhook notification failed", err);
+      return false;
     }
   }
 
@@ -116,18 +148,27 @@ export function createNotificationService(options: NotificationServiceOptions = 
       joinTimer = null;
     }
 
-    const names = Array.from(pendingJoinNames);
-    pendingJoinNames = new Set();
-    if (names.length === 0) return;
+    const pending = Array.from(pendingJoinNames.entries());
+    pendingJoinNames = new Map();
+    if (pending.length === 0) return;
 
+    const names = pending.map(([, name]) => name);
     const text = `:radio: ${formatJoinedNames(names)}`;
-    await send(slackMessage(text, radioUrl));
+    if (await send(slackMessage(text, radioUrl))) {
+      for (const [key] of pending) markSent(key);
+    }
   }
 
   return {
     notifyListenerJoined(name: string) {
       if (!enabled()) return;
-      pendingJoinNames.add(trimName(name));
+      const displayName = trimName(name);
+      const key = notificationKey("listener", displayName);
+      if (wasRecentlySent(key)) return;
+
+      if (!pendingJoinNames.has(key)) {
+        pendingJoinNames.set(key, displayName);
+      }
       if (joinTimer === null) {
         joinTimer = schedule(() => {
           void flushJoinedListeners();
@@ -136,8 +177,14 @@ export function createNotificationService(options: NotificationServiceOptions = 
     },
 
     async notifyDjStarted(name: string) {
-      const text = `:headphones: ${trimName(name)} is DJing on Vibez`;
-      await send(slackMessage(text, radioUrl));
+      const displayName = trimName(name);
+      const key = notificationKey("dj", displayName);
+      if (wasRecentlySent(key)) return;
+
+      const text = `:headphones: ${displayName} is DJing on Vibez`;
+      if (await send(slackMessage(text, radioUrl))) {
+        markSent(key);
+      }
     },
 
     flushJoinedListeners,
