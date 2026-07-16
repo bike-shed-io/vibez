@@ -114,7 +114,9 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const name = String(msg.name || "Anonymous").slice(0, 30);
       conn.name = name;
       station.listeners.set(id, { name, connectedAt: Date.now() });
-      notifications.notifyListenerJoined(name);
+      if (station.isPlaying && station.trackUrl) {
+        notifications.notifyListenerJoined(name);
+      }
       conn.ws.send(JSON.stringify({ type: "sync", ...getSnapshot() }));
       broadcastListeners();
       break;
