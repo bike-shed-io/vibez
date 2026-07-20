@@ -394,6 +394,14 @@ struct MainWindowView: View {
             }
             .buttonStyle(.bordered)
             .disabled(!appModel.isRoomConnected || appModel.queue.count < 2)
+
+            Button(role: .destructive) {
+              appModel.clearQueue()
+            } label: {
+              Label("Clear", systemImage: "trash")
+            }
+            .buttonStyle(.bordered)
+            .disabled(!appModel.isRoomConnected || appModel.queue.isEmpty)
           }
         }
 

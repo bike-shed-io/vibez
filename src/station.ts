@@ -132,6 +132,10 @@ export function getQueueSnapshot(): QueueItem[] {
   return station.queue;
 }
 
+export function clearQueue() {
+  station.queue = [];
+}
+
 export function clearPlayback() {
   station.trackUrl = null;
   station.trackTitle = null;
