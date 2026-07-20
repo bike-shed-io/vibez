@@ -4,7 +4,7 @@ import {
   station, getSnapshot, setTrack, claimDj, releaseDj, isDj,
   listenerNames, listenerCount, touchDjHeartbeat,
   addToQueue, removeFromQueue, reorderQueue, shuffleQueue,
-  popQueue, getQueueSnapshot, clearPlayback,
+  popQueue, getQueueSnapshot, clearQueue, clearPlayback,
   type QueueItem,
 } from "./station";
 import { resolveStreamUrl, resolveTracks } from "./soundcloud";
@@ -307,6 +307,17 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
         return;
       }
       shuffleQueue();
+      broadcastQueue();
+      break;
+    }
+
+    case "queue:clear": {
+      if (!isDj(id)) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can clear the queue" }));
+        return;
+      }
+      touchDjHeartbeat();
+      clearQueue();
       broadcastQueue();
       break;
     }

@@ -277,6 +277,10 @@ final class VibezAppModel: NSObject, ObservableObject {
     send(["type": "queue:shuffle"])
   }
 
+  func clearQueue() {
+    send(["type": "queue:clear"])
+  }
+
   func reorderQueue(itemId: String, toIndex: Int) {
     send(["type": "queue:reorder", "itemId": itemId, "toIndex": toIndex])
   }

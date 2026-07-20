@@ -59,6 +59,7 @@
   const queueDjControls = $("queueDjControls");
   const skipBtn = $("skipBtn");
   const shuffleBtn = $("shuffleBtn");
+  const clearQueueBtn = $("clearQueueBtn");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -681,6 +682,12 @@
 
   shuffleBtn.addEventListener("click", () => {
     if (ws && isDj) ws.send(JSON.stringify({ type: "queue:shuffle" }));
+  });
+
+  clearQueueBtn.addEventListener("click", () => {
+    if (ws && isDj && queueItems.length > 0) {
+      ws.send(JSON.stringify({ type: "queue:clear" }));
+    }
   });
 
   // Auto-join if name already saved
