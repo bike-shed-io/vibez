@@ -34,45 +34,45 @@ function resetStation() {
   station.queue = [];
 }
 
-const originalNotifyListenerJoined = notifications.notifyListenerJoined;
+const originalNotifyDjStarted = notifications.notifyDjStarted;
 
-async function joinListener(id: string, name: string) {
-  const { ws, sent } = createFakeWs();
-  handleOpen(ws, id);
-  await handleMessage(id, JSON.stringify({ type: "join", name }));
-  handleClose(id);
-  return sent;
-}
+describe("websocket Slack notifications", () => {
+  let notified: string[];
 
-describe("websocket join notifications", () => {
   beforeEach(() => {
     resetStation();
-    notifications.notifyListenerJoined = originalNotifyListenerJoined;
+    notified = [];
+    notifications.notifyDjStarted = async (name) => {
+      notified.push(name);
+    };
   });
 
   afterEach(() => {
-    notifications.notifyListenerJoined = originalNotifyListenerJoined;
+    notifications.notifyDjStarted = originalNotifyDjStarted;
     resetStation();
   });
 
-  test("does not notify Slack when a listener joins without active playback", async () => {
-    const notified: string[] = [];
-    notifications.notifyListenerJoined = (name) => notified.push(name);
+  test("does not notify Slack when a listener joins while music is playing", async () => {
+    station.trackUrl = "https://soundcloud.com/example/track";
+    station.isPlaying = true;
+    const { ws, sent } = createFakeWs();
+    handleOpen(ws, "listener-playing");
 
-    const sent = await joinListener("listener-no-playback", "Patrick");
+    await handleMessage("listener-playing", JSON.stringify({ type: "join", name: "Lisa" }));
+    handleClose("listener-playing");
 
     expect(notified).toEqual([]);
     expect(sent.find((msg: any) => msg.type === "sync")).toBeDefined();
   });
 
-  test("notifies Slack when a listener joins while music is playing", async () => {
-    const notified: string[] = [];
-    notifications.notifyListenerJoined = (name) => notified.push(name);
-    station.trackUrl = "https://soundcloud.com/example/track";
-    station.isPlaying = true;
+  test("notifies Slack once when someone starts DJing", async () => {
+    const { ws } = createFakeWs();
+    handleOpen(ws, "dj");
 
-    await joinListener("listener-playing", "Lisa");
+    await handleMessage("dj", JSON.stringify({ type: "join", name: "Patrick" }));
+    await handleMessage("dj", JSON.stringify({ type: "dj:claim" }));
+    handleClose("dj");
 
-    expect(notified).toEqual(["Lisa"]);
+    expect(notified).toEqual(["Patrick"]);
   });
 });
