@@ -33,11 +33,16 @@ enum SessionTokenStore {
     return String(data: data, encoding: .utf8)
   }
 
-  static func save(_ token: String) {
-    clear()
-    var query = baseQuery
-    query[kSecValueData as String] = Data(token.utf8)
-    SecItemAdd(query as CFDictionary, nil)
+  @discardableResult
+  static func save(_ token: String) -> Bool {
+    let data = Data(token.utf8)
+    let updateStatus = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+    if updateStatus == errSecItemNotFound {
+      var query = baseQuery
+      query[kSecValueData as String] = data
+      return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    }
+    return updateStatus == errSecSuccess
   }
 
   static func clear() {

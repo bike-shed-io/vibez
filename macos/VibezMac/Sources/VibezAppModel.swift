@@ -205,11 +205,24 @@ final class VibezAppModel: NSObject, ObservableObject {
   func saveConfiguration(_ configuration: VibezConfiguration) async throws {
     try await validate(configuration)
 
+    let previousServerURL = self.configuration?.serverURL
     let encoded = try JSONEncoder().encode(configuration)
     defaults.set(encoded, forKey: Self.configurationKey)
     self.configuration = configuration
+
+    // Switching to a different server must not hand it the old server's session token.
+    if let previousServerURL, serverIdentity(previousServerURL) != serverIdentity(configuration.serverURL) {
+      SessionTokenStore.clear()
+      user = nil
+    }
+
     reconnect(clearErrors: true)
     Task { await loadUser() }
+  }
+
+  private func serverIdentity(_ url: URL?) -> String? {
+    guard let url else { return nil }
+    return "\(url.scheme ?? "")://\(url.host ?? "")" + (url.port.map { ":\($0)" } ?? "")
   }
 
   func reconnect(clearErrors: Bool = false) {
@@ -226,7 +239,10 @@ final class VibezAppModel: NSObject, ObservableObject {
     defer { isSigningIn = false }
     do {
       let token = try await googleSignIn.signIn(serverURL: serverURL)
-      SessionTokenStore.save(token)
+      guard SessionTokenStore.save(token) else {
+        errorMessage = "Couldn't save your sign-in to the Keychain."
+        return
+      }
       await loadUser()
       reconnect(clearErrors: true)
     } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
