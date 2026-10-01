@@ -55,8 +55,11 @@ struct PopoverRootView: View {
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
           .padding()
           .task(id: notice) {
-            try? await Task.sleep(for: .seconds(4))
-            appModel.notice = nil
+            // A newer notice cancels this task; only clear when the full 4 s ran.
+            do {
+              try await Task.sleep(for: .seconds(4))
+              appModel.notice = nil
+            } catch {}
           }
       }
     }

@@ -68,6 +68,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   @Published var notice: String?
   @Published private(set) var isAdmin = false
   @Published private(set) var updateRequired = false
+  /// The DJ name the user chose (empty = not chosen yet). Only user choices are persisted; see `effectiveDJName`.
   @Published var djName: String {
     didSet { defaults.set(djName, forKey: Self.djNameKey) }
   }
@@ -79,6 +80,14 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   var isDJ: Bool { roles.isActiveDj }
+
+  /// Chosen DJ name, else the Google given name, else the display name. Fallbacks are computed, never stored.
+  var effectiveDJName: String {
+    let chosen = djName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !chosen.isEmpty { return chosen }
+    if let givenName = user?.givenName, !givenName.isEmpty { return givenName }
+    return listenerName
+  }
   @Published var queueDraftURL = ""
   @Published var vibezLevel: Double = 0 {
     didSet {
@@ -226,7 +235,6 @@ final class VibezAppModel: NSObject, ObservableObject {
     let encoded = try JSONEncoder().encode(configuration)
     defaults.set(encoded, forKey: Self.configurationKey)
     self.configuration = configuration
-    if djName.isEmpty { djName = configuration.listenerName }
 
     // Switching to a different server must not hand it the old server's session token.
     if let previousServerURL, serverIdentity(previousServerURL) != serverIdentity(configuration.serverURL) {
@@ -292,7 +300,6 @@ final class VibezAppModel: NSObject, ObservableObject {
       } else if (200..<300).contains(status) {
         let decoded = try JSONDecoder().decode(VibezUser.self, from: data)
         user = decoded
-        if djName.isEmpty { djName = decoded.givenName }
       }
     } catch {
       // Offline: keep the token, try again on next connect
@@ -311,7 +318,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   func goLive() {
-    send(["type": "live:start", "djName": djName, "roomName": roomName, "trustedEmails": trustedEmails])
+    send(["type": "live:start", "djName": effectiveDJName, "roomName": roomName, "trustedEmails": trustedEmails])
   }
 
   func endLive() {
@@ -417,7 +424,6 @@ final class VibezAppModel: NSObject, ObservableObject {
     )
 
     self.configuration = configuration
-    if djName.isEmpty { djName = configuration.listenerName }
     if let encoded = try? JSONEncoder().encode(configuration) {
       defaults.set(encoded, forKey: Self.configurationKey)
     }

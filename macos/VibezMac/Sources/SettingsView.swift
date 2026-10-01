@@ -37,7 +37,8 @@ struct SettingsView: View {
               .font(.caption)
               .foregroundStyle(.secondary)
           }
-          TextField("DJ name", text: $appModel.djName)
+          // Empty shows (and uses) the default: Google given name, else display name.
+          TextField("DJ name", text: $appModel.djName, prompt: Text(appModel.effectiveDJName))
         }
 
         Section("Trusted DJs") {
