@@ -341,14 +341,23 @@
         if (entry.trackArtwork) art.style.backgroundImage = `url("${entry.trackArtwork}")`;
         const title = document.createElement("strong");
         title.textContent = roomLabel(entry);
+        const ownerRow = document.createElement("div");
+        ownerRow.className = "channel-owner";
+        const avatar = document.createElement("img");
+        avatar.className = "channel-owner-avatar";
+        avatar.alt = "";
+        avatar.referrerPolicy = "no-referrer";
+        if (entry.ownerPicture) avatar.src = entry.ownerPicture;
+        avatar.classList.toggle("hidden", !entry.ownerPicture);
         const meta = document.createElement("span");
         meta.className = "hint";
         const dj = entry.activeDjName !== entry.ownerName ? ` · 🎧 ${entry.activeDjName}` : "";
         meta.textContent = `${entry.ownerName}${dj} · ${entry.listenerCount} listening${entry.djAway ? " · DJ away" : ""}`;
+        ownerRow.append(avatar, meta);
         const track = document.createElement("span");
         track.className = "channel-track";
         track.textContent = entry.trackTitle || "Nothing playing";
-        card.append(art, title, track, meta);
+        card.append(art, title, track, ownerRow);
         card.addEventListener("click", () => ws.send(JSON.stringify({ type: "channel:join", channelId: entry.id })));
         if (isAdmin) {
           const end = document.createElement("span");
