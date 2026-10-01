@@ -52,21 +52,40 @@ describe("startChannel", () => {
     expect(channel.ownerName).toBe("A".repeat(30));
   });
 
-  test("re-going-live: trusted DJ keeps decks if still trusted, loses them if dropped", () => {
+  test("re-going-live: trusted DJ keeps decks, and the trusted list is unioned (not replaced)", () => {
     const channel = live({ trustedEmails: [ANNA] });
     takeDecks(channel, ANNA, "Anna");
     expect(channel.activeDjEmail).toBe(ANNA);
     expect(channel.activeDjName).toBe("Anna");
 
-    // Re-go-live with Anna still trusted - should keep decks
-    startChannel(PAT, { djName: "Pat", roomName: "room2", trustedEmails: [ANNA] }, NOW + 1);
+    // Re-go-live from a second device with a different trusted list - Anna is still trusted (union), keeps decks
+    startChannel(PAT, { djName: "Pat", roomName: "room2", trustedEmails: ["max@example.com"] }, NOW + 1);
     expect(channel.activeDjEmail).toBe(ANNA);
     expect(channel.activeDjName).toBe("Anna");
+    expect([...channel.trustedEmails].sort()).toEqual([ANNA, "max@example.com"]);
 
-    // Re-go-live and drop Anna from trusted - decks go back to owner
+    // Re-go-live with an empty trusted list doesn't drop anyone - only live:untrust does
     startChannel(PAT, { djName: "Pat", roomName: "room3", trustedEmails: [] }, NOW + 2);
+    expect(channel.activeDjEmail).toBe(ANNA);
+    expect([...channel.trustedEmails].sort()).toEqual([ANNA, "max@example.com"]);
+
+    // Only explicitly untrusting the active DJ sends the decks back to the owner
+    untrust(channel, ANNA);
     expect(channel.activeDjEmail).toBe("pat@example.com");
     expect(channel.activeDjName).toBe("Pat");
+  });
+
+  test("trusted list is capped at 50 entries, ignoring extras", () => {
+    const many = Array.from({ length: 55 }, (_, i) => `user${i}@example.com`);
+    const channel = startChannel(PAT, { djName: "DJ", trustedEmails: many }, NOW).channel;
+    expect(channel.trustedEmails.size).toBe(50);
+  });
+
+  test("emails longer than 254 chars are ignored", () => {
+    const long = `${"a".repeat(250)}@example.com`; // > 254 chars
+    expect(long.length).toBeGreaterThan(254);
+    const channel = live({ trustedEmails: [long, ANNA] });
+    expect([...channel.trustedEmails]).toEqual([ANNA]);
   });
 });
 
@@ -99,6 +118,17 @@ describe("roles", () => {
     expect(trust(channel, "max@example.com")).toBe(false);
     expect(trust(channel, "pat@example.com")).toBe(false);
     expect([...channel.trustedEmails]).toEqual(["max@example.com"]);
+  });
+
+  test("trust refuses overlong emails and more than 50 entries", () => {
+    const channel = live({ trustedEmails: [] });
+    const long = `${"a".repeat(250)}@example.com`;
+    expect(trust(channel, long)).toBe(false);
+
+    for (let i = 0; i < 50; i++) trust(channel, `user${i}@example.com`);
+    expect(channel.trustedEmails.size).toBe(50);
+    expect(trust(channel, "overflow@example.com")).toBe(false);
+    expect(channel.trustedEmails.size).toBe(50);
   });
 
   test("untrusting the active DJ returns the decks to the owner", () => {

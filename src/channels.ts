@@ -69,6 +69,8 @@ export type Roles = {
 
 export const DJ_GONE_MS = 2 * 60_000;
 export const IDLE_MS = 10 * 60_000;
+const MAX_TRUSTED = 50;
+const MAX_EMAIL_LEN = 254;
 
 export const channels = new Map<string, Channel>();
 
@@ -86,12 +88,14 @@ export function cleanRoomName(value: unknown): string | null {
 
 function parseTrusted(value: unknown, ownerEmail: string): Set<string> {
   if (!Array.isArray(value)) return new Set();
-  return new Set(
-    value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map(normalizeEmail)
-      .filter((email) => email.includes("@") && email !== ownerEmail),
-  );
+  const result = new Set<string>();
+  for (const entry of value) {
+    if (result.size >= MAX_TRUSTED) break;
+    if (typeof entry !== "string" || entry.length > MAX_EMAIL_LEN) continue;
+    const email = normalizeEmail(entry);
+    if (email.includes("@") && email !== ownerEmail) result.add(email);
+  }
+  return result;
 }
 
 function setActiveDj(ch: Channel, email: string, name: string) {
@@ -130,8 +134,10 @@ export function startChannel(
     existing.ownerName = ownerName;
     existing.ownerPicture = owner.picture;
     existing.roomName = roomName;
-    existing.trustedEmails = trustedEmails;
-    if (existing.activeDjEmail === ownerEmail || !trustedEmails.has(existing.activeDjEmail)) {
+    // Going live again (e.g. from a second device) unions the trusted list rather than
+    // replacing it — dropping someone requires an explicit live:untrust.
+    for (const email of trustedEmails) existing.trustedEmails.add(email);
+    if (existing.activeDjEmail === ownerEmail || !existing.trustedEmails.has(existing.activeDjEmail)) {
       setActiveDj(existing, ownerEmail, ownerName);
     }
     return { channel: existing, created: false };
@@ -220,8 +226,10 @@ export function takeDecks(ch: Channel, email: string, name: string) {
 
 /** Returns true when the email was newly trusted. */
 export function trust(ch: Channel, email: string): boolean {
+  if (email.length > MAX_EMAIL_LEN) return false;
   const normalized = normalizeEmail(email);
   if (!normalized.includes("@") || normalized === ch.ownerEmail || ch.trustedEmails.has(normalized)) return false;
+  if (ch.trustedEmails.size >= MAX_TRUSTED) return false;
   ch.trustedEmails.add(normalized);
   return true;
 }
