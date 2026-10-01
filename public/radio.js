@@ -216,10 +216,7 @@
         break;
 
       case "channel:ended":
-        currentChannel = null;
-        roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
-        stopHeartbeat();
-        clearPlayer();
+        resetChannelState();
         showDirectory(msg.reason === "ended" ? "The DJ ended the channel." : "That channel ended.");
         break;
 
@@ -270,17 +267,30 @@
         console.warn("[vibez]", msg.message);
         if (msg.code === "protocol") {
           protocolRejected = true;
+          resetChannelState(); // socket is closing — no need to send channel:leave
           showError("This page is out of date — reloading…");
           setTimeout(() => location.reload(), 1500);
           break;
         }
         if (msg.code === "channel-not-found") {
+          if (currentChannel) {
+            ws.send(JSON.stringify({ type: "channel:leave" }));
+            resetChannelState();
+          }
           showDirectory("That channel ended.");
           break;
         }
         showError(msg.message);
         break;
     }
+  }
+
+  // --- Channel cleanup (leaving, kicked out, or the channel ending under us) ---
+  function resetChannelState() {
+    currentChannel = null;
+    roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+    stopHeartbeat();
+    clearPlayer();
   }
 
   // --- Player ---
@@ -397,10 +407,7 @@
   backToChannels.addEventListener("click", (event) => {
     event.preventDefault();
     ws.send(JSON.stringify({ type: "channel:leave" }));
-    currentChannel = null;
-    roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
-    stopHeartbeat();
-    clearPlayer();
+    resetChannelState();
     showDirectory();
   });
 

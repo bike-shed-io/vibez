@@ -143,8 +143,15 @@ final class VibezAppModel: NSObject, ObservableObject {
     loadPersistedConfiguration()
   }
 
+  /// Display name sent in `hello`: the user-set display name if any, else the signed-in Google
+  /// given name, else "Listener". A stored name equal to this Mac's computer name is treated as
+  /// never having been set by the user (old default, before this was fixed).
   var listenerName: String {
-    configuration?.listenerName ?? "Listener"
+    if let stored = configuration?.listenerName, !stored.isEmpty, stored != Host.current().localizedName {
+      return stored
+    }
+    if let givenName = user?.givenName, !givenName.isEmpty { return givenName }
+    return "Listener"
   }
 
   var isRoomConnected: Bool {
@@ -420,15 +427,21 @@ final class VibezAppModel: NSObject, ObservableObject {
       .flatMap { try? JSONDecoder().decode(VibezConfiguration.self, from: $0) }
     let configuration = stored ?? VibezConfiguration(
       serverURLString: "https://vibez.bike-shed.io",
-      listenerName: Host.current().localizedName ?? "Listener"
+      listenerName: ""
     )
 
     self.configuration = configuration
     if let encoded = try? JSONEncoder().encode(configuration) {
       defaults.set(encoded, forKey: Self.configurationKey)
     }
+    let nameAtConnect = listenerName
     connect()
-    Task { await loadUser() }
+    Task {
+      await loadUser()
+      // A signed-in user's given name only becomes available after this resolves; reconnect so
+      // `hello` carries it instead of the "Listener" fallback sent at cold start.
+      if listenerName != nameAtConnect { reconnect() }
+    }
   }
 
   private func connect() {
@@ -455,7 +468,7 @@ final class VibezAppModel: NSObject, ObservableObject {
       await self.receiveLoop(for: task)
     }
 
-    send(["type": "hello", "protocol": 2, "name": configuration.listenerName])
+    send(["type": "hello", "protocol": 2, "name": listenerName])
   }
 
   private func disconnect() {
@@ -569,9 +582,16 @@ final class VibezAppModel: NSObject, ObservableObject {
       if code == "protocol" {
         updateRequired = true
         errorMessage = errorText
+        // Socket is closing — clear local state without sending channel:leave.
+        currentChannel = nil
+        roles = .none
+        clearPlayback()
         return
       }
       if code == "channel-not-found" {
+        if currentChannel != nil {
+          leaveChannel()
+        }
         notice = "That channel ended."
         return
       }
