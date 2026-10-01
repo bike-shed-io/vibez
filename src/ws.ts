@@ -42,6 +42,16 @@ function isAdmin(conn: Conn): boolean {
   return !!email && parseEmailList(process.env.ADMIN_EMAILS).has(email);
 }
 
+// Re-checked after an `await` (track/stream resolution) so a slow DJ action can't land once
+// the sender has left the channel, or lost the decks, while it was in flight.
+function stillMember(conn: Conn, ch: Channel): boolean {
+  return channels.has(ch.id) && conn.channelId === ch.id;
+}
+
+function stillActiveDj(conn: Conn, ch: Channel): boolean {
+  return stillMember(conn, ch) && rolesFor(ch, emailOf(conn)).isActiveDj;
+}
+
 function membersOf(ch: Channel): Conn[] {
   const result: Conn[] = [];
   for (const id of ch.members.keys()) {
@@ -168,6 +178,20 @@ function stopPlayback(ch: Channel) {
   scheduleDirectory();
 }
 
+// Guards against two concurrent advances (duplicate track:ended from two clients, a double
+// queue:skip) both popping a queue item for what is really a single advance.
+const advancing = new WeakSet<Channel>();
+
+async function advanceQueue(ch: Channel): Promise<void> {
+  if (advancing.has(ch)) return;
+  advancing.add(ch);
+  try {
+    await playNextFromQueue(ch);
+  } finally {
+    advancing.delete(ch);
+  }
+}
+
 async function playNextFromQueue(ch: Channel, depth = 0): Promise<void> {
   if (depth >= MAX_SKIP_ATTEMPTS) {
     console.warn("[queue] Gave up after skipping", depth, "unplayable tracks");
@@ -219,6 +243,10 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
   try {
     msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
   } catch {
+    sendError(conn, "Invalid JSON");
+    return;
+  }
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
     sendError(conn, "Invalid JSON");
     return;
   }
@@ -350,7 +378,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const url = String(msg.url || "").trim();
       if (!url) return sendError(conn, "URL is required");
       const tracks = await resolveOrReport(conn, url);
-      if (!tracks || !channels.has(ch.id)) return;
+      if (!tracks || !stillMember(conn, ch)) return;
       for (const t of tracks) {
         addToQueue(ch, { id: crypto.randomUUID(), url: t.url, title: t.title, artwork: t.artwork, addedBy: conn.name });
       }
@@ -369,7 +397,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const url = String(msg.url || "").trim();
       if (!url) return;
       const tracks = await resolveOrReport(conn, url);
-      if (!tracks || !channels.has(ch.id)) return;
+      if (!tracks || !stillActiveDj(conn, ch)) return;
       const [first, ...rest] = tracks;
       let streamUrl: string | null = null;
       try {
@@ -377,6 +405,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       } catch (err) {
         console.error("[ws] resolveStreamUrl failed:", err);
       }
+      if (!stillActiveDj(conn, ch)) return;
       startTrack(ch, first.url, first.title, first.artwork, streamUrl);
       for (const t of rest) {
         addToQueue(ch, { id: crypto.randomUUID(), url: t.url, title: t.title, artwork: t.artwork, addedBy: conn.name });
@@ -417,7 +446,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
         ch.isPlaying = false;
         return scheduleDirectory();
       }
-      return playNextFromQueue(ch);
+      return advanceQueue(ch);
     }
 
     case "queue:remove":
@@ -437,7 +466,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       return broadcastQueue(ch);
 
     case "queue:skip":
-      return playNextFromQueue(ch);
+      return advanceQueue(ch);
 
     default:
       return sendError(conn, `Unknown message type: ${msg.type}`);

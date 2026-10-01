@@ -63,6 +63,28 @@ afterEach(() => {
   delete process.env.ADMIN_EMAILS;
 });
 
+describe("malformed frames", () => {
+  test("null, number, and array frames are rejected without throwing, before and after hello", async () => {
+    const fake: Fake = { id: "malformed", sent: [], closed: false };
+    handleOpen({ send: (d: string) => fake.sent.push(JSON.parse(d)), close: () => (fake.closed = true) } as any, "malformed");
+    open.push("malformed");
+
+    for (const frame of ["null", "42", "[]"]) {
+      fake.sent.length = 0;
+      await handleMessage("malformed", frame);
+      expect(fake.sent).toEqual([{ type: "error", message: "Invalid JSON" }]);
+    }
+
+    await handleMessage("malformed", JSON.stringify({ type: "hello", protocol: 2, name: "Mal" }));
+
+    for (const frame of ["null", "42", "[]"]) {
+      fake.sent.length = 0;
+      await handleMessage("malformed", frame);
+      expect(fake.sent).toEqual([{ type: "error", message: "Invalid JSON" }]);
+    }
+  });
+});
+
 describe("hello", () => {
   test("old clients are told to update and disconnected", async () => {
     const fake: Fake = { id: "old", sent: [], closed: false };

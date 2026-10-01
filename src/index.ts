@@ -28,7 +28,9 @@ app.get(
       },
       onMessage(evt, _ws) {
         // Bun delivers text frames as strings and binary frames as buffers, never Blobs
-        handleMessage(id, evt.data as string | ArrayBuffer);
+        handleMessage(id, evt.data as string | ArrayBuffer).catch((err) =>
+          console.error("[ws] handleMessage failed:", err),
+        );
       },
       onClose() {
         handleClose(id);
