@@ -1,3 +1,4 @@
+import AuthenticationServices
 import AVFoundation
 import Foundation
 
@@ -35,6 +36,9 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   @Published private(set) var configuration: VibezConfiguration?
   @Published private(set) var connectionState: ConnectionState = .setupRequired
+  @Published private(set) var user: VibezUser?
+  @Published private(set) var isSigningIn = false
+  private let googleSignIn = GoogleSignIn()
 
   @Published var trackDraftURL = ""
   @Published private(set) var trackTitle: String?
@@ -205,6 +209,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     defaults.set(encoded, forKey: Self.configurationKey)
     self.configuration = configuration
     reconnect(clearErrors: true)
+    Task { await loadUser() }
   }
 
   func reconnect(clearErrors: Bool = false) {
@@ -215,8 +220,51 @@ final class VibezAppModel: NSObject, ObservableObject {
     connect()
   }
 
+  func signIn() async {
+    guard let serverURL = configuration?.serverURL else { return }
+    isSigningIn = true
+    defer { isSigningIn = false }
+    do {
+      let token = try await googleSignIn.signIn(serverURL: serverURL)
+      SessionTokenStore.save(token)
+      await loadUser()
+      reconnect(clearErrors: true)
+    } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+      // User closed the sheet; stay signed out quietly
+    } catch {
+      errorMessage = GoogleSignInError.failed.localizedDescription
+    }
+  }
+
+  func signOut() {
+    SessionTokenStore.clear()
+    user = nil
+    reconnect(clearErrors: true)
+  }
+
+  func loadUser() async {
+    guard let serverURL = configuration?.serverURL, let token = SessionTokenStore.load() else {
+      user = nil
+      return
+    }
+    var request = URLRequest(url: serverURL.appending(path: "auth/me"))
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+      if status == 401 {
+        SessionTokenStore.clear()
+        user = nil
+      } else if (200..<300).contains(status) {
+        user = try JSONDecoder().decode(VibezUser.self, from: data)
+      }
+    } catch {
+      // Offline: keep the token, try again on next connect
+    }
+  }
+
   func claimDJ() {
-    send(["type": "dj:claim"])
+    send(["type": "dj:claim", "djName": configuration?.listenerName ?? ""])
   }
 
   func releaseDJ() {
@@ -293,7 +341,11 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
 
     self.configuration = configuration
+    if let encoded = try? JSONEncoder().encode(configuration) {
+      defaults.set(encoded, forKey: Self.configurationKey)
+    }
     connect()
+    Task { await loadUser() }
   }
 
   private func connect() {
@@ -307,7 +359,11 @@ final class VibezAppModel: NSObject, ObservableObject {
     connectionState = .connecting
     errorMessage = nil
 
-    let task = urlSession.webSocketTask(with: socketURL)
+    var request = URLRequest(url: socketURL)
+    if let token = SessionTokenStore.load() {
+      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+    let task = urlSession.webSocketTask(with: request)
     webSocketTask = task
     task.resume()
 
@@ -603,7 +659,6 @@ final class VibezAppModel: NSObject, ObservableObject {
 
     var request = URLRequest(url: url)
     request.timeoutInterval = 10
-    request.setValue(basicAuthHeader(username: configuration.username, password: configuration.password), forHTTPHeaderField: "Authorization")
 
     let (_, response) = try await URLSession.shared.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
@@ -613,8 +668,6 @@ final class VibezAppModel: NSObject, ObservableObject {
     switch httpResponse.statusCode {
     case 200..<300:
       return
-    case 401:
-      throw ValidationError.invalidCredentials
     default:
       throw ValidationError.serverRejected(httpResponse.statusCode)
     }
@@ -667,7 +720,6 @@ final class VibezAppModel: NSObject, ObservableObject {
 
 private enum ValidationError: LocalizedError {
   case invalidURL
-  case invalidCredentials
   case unexpectedResponse
   case serverRejected(Int)
 
@@ -675,8 +727,6 @@ private enum ValidationError: LocalizedError {
     switch self {
     case .invalidURL:
       return "That server URL does not look valid."
-    case .invalidCredentials:
-      return "The current password was rejected by vibez."
     case .unexpectedResponse:
       return "The vibez server responded in an unexpected way."
     case .serverRejected(let statusCode):

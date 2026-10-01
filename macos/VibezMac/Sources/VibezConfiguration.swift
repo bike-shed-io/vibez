@@ -3,8 +3,6 @@ import Foundation
 struct VibezConfiguration: Codable, Equatable {
   var serverURLString: String
   var listenerName: String
-  var username: String
-  var password: String
 
   var serverURL: URL? {
     normalizedURL(from: serverURLString)
@@ -42,10 +40,4 @@ func webSocketURL(from serverURL: URL) -> URL? {
   components.query = nil
   components.fragment = nil
   return components.url
-}
-
-func basicAuthHeader(username: String, password: String) -> String {
-  let user = username.isEmpty ? "listener" : username
-  let token = Data("\(user):\(password)".utf8).base64EncodedString()
-  return "Basic \(token)"
 }

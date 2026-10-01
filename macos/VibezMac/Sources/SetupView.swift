@@ -38,11 +38,10 @@ struct SetupView: View {
 
   @Environment(\.dismiss) private var dismiss
   @EnvironmentObject private var visibilitySettings: AppVisibilitySettings
+  @EnvironmentObject private var appModel: VibezAppModel
 
   @State private var serverURLString: String
   @State private var listenerName: String
-  @State private var username: String
-  @State private var password: String
   @State private var isSaving = false
   @State private var errorMessage: String?
 
@@ -53,8 +52,6 @@ struct SetupView: View {
     let existing = mode.existingConfiguration
     _serverURLString = State(initialValue: existing?.serverURLString ?? "https://vibez.bike-shed.io")
     _listenerName = State(initialValue: existing?.listenerName ?? Host.current().localizedName ?? "Patrick")
-    _username = State(initialValue: existing?.username ?? "listener")
-    _password = State(initialValue: existing?.password ?? "")
   }
 
   var body: some View {
@@ -62,7 +59,7 @@ struct SetupView: View {
       VStack(alignment: .leading, spacing: 6) {
         Text(mode.title)
           .font(.largeTitle.weight(.semibold))
-        Text("The password is only asked once here and stored locally for now. We can swap this auth flow later.")
+        Text("Listening needs no account. Sign in with Google to DJ or add tracks.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
       }
@@ -74,29 +71,27 @@ struct SetupView: View {
             .frame(width: 320)
         }
 
-        LabeledContent("Listener Name") {
+        LabeledContent("Name (also your DJ name)") {
           TextField("Your name", text: $listenerName)
             .textFieldStyle(.roundedBorder)
             .frame(width: 220)
         }
 
-        LabeledContent("Username") {
-          TextField("listener", text: $username)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 180)
-        }
-
-        LabeledContent("Password") {
-          SecureField("enam2026", text: $password)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 220)
+        LabeledContent("Account") {
+          if let user = appModel.user {
+            HStack {
+              Text(user.name)
+              Button("Sign out") { appModel.signOut() }
+            }
+          } else {
+            Button(appModel.isSigningIn ? "Signing in…" : "Sign in with Google") {
+              Task { await appModel.signIn() }
+            }
+            .disabled(appModel.isSigningIn || appModel.configuration == nil)
+          }
         }
       }
       .font(.body)
-
-      Text("Username currently doesn't matter. Listener name does: it's what the room sees when you join and DJ.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
 
       Divider()
 
@@ -152,9 +147,7 @@ struct SetupView: View {
 
     let configuration = VibezConfiguration(
       serverURLString: serverURLString,
-      listenerName: listenerName.trimmingCharacters(in: .whitespacesAndNewlines),
-      username: username.trimmingCharacters(in: .whitespacesAndNewlines),
-      password: password
+      listenerName: listenerName.trimmingCharacters(in: .whitespacesAndNewlines)
     )
 
     guard configuration.serverURL != nil else {
@@ -164,11 +157,6 @@ struct SetupView: View {
 
     guard !configuration.listenerName.isEmpty else {
       errorMessage = "Choose the name that should appear in the room."
-      return
-    }
-
-    guard !configuration.password.isEmpty else {
-      errorMessage = "Enter the current room password."
       return
     }
 

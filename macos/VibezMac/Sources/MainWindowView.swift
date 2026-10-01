@@ -317,8 +317,14 @@ struct MainWindowView: View {
               Label("Become DJ", systemImage: "music.mic.circle.fill")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!appModel.isRoomConnected)
+            .disabled(!appModel.isRoomConnected || appModel.user == nil)
           }
+        }
+
+        if !appModel.isDJ && appModel.user == nil {
+          Text("Sign in to DJ")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
 
         VStack(alignment: .leading, spacing: 8) {
@@ -368,13 +374,19 @@ struct MainWindowView: View {
           TextField("Add SoundCloud URL to queue…", text: $appModel.queueDraftURL)
             .textFieldStyle(.roundedBorder)
             .onSubmit { appModel.addToQueue() }
-            .disabled(!appModel.isRoomConnected)
+            .disabled(!appModel.isRoomConnected || appModel.user == nil)
 
           Button("Add") {
             appModel.addToQueue()
           }
           .buttonStyle(.borderedProminent)
-          .disabled(!appModel.isRoomConnected || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          .disabled(!appModel.isRoomConnected || appModel.user == nil || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+
+        if appModel.user == nil {
+          Text("Sign in to DJ")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
 
         if appModel.isDJ {

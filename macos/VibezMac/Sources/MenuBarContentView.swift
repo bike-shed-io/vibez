@@ -171,14 +171,20 @@ struct MenuBarContentView: View {
               .textFieldStyle(.roundedBorder)
               .font(.caption)
               .onSubmit { appModel.addToQueue() }
-              .disabled(!appModel.isRoomConnected)
+              .disabled(!appModel.isRoomConnected || appModel.user == nil)
 
             Button("Add") {
               appModel.addToQueue()
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(!appModel.isRoomConnected || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(!appModel.isRoomConnected || appModel.user == nil || appModel.queueDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+          }
+
+          if appModel.user == nil {
+            Text("Sign in to DJ")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
         }
 
@@ -243,7 +249,7 @@ struct MenuBarContentView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
-          .disabled(!appModel.isRoomConnected)
+          .disabled(!appModel.isRoomConnected || (!appModel.isDJ && appModel.user == nil))
 
           Button {
             appModel.playTrackDraft()
@@ -253,6 +259,12 @@ struct MenuBarContentView: View {
           }
           .buttonStyle(.borderedProminent)
           .disabled(!appModel.isRoomConnected || !appModel.isDJ || appModel.trackDraftURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+
+        if !appModel.isDJ && appModel.user == nil {
+          Text("Sign in to DJ")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
 
         TextField("SoundCloud URL…", text: $appModel.trackDraftURL)
