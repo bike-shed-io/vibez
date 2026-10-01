@@ -1,4 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { Hono } from "hono";
+import { deleteCookie, setCookie } from "hono/cookie";
 
 export type SessionUser = {
   email: string;
@@ -90,4 +92,133 @@ export function sessionFromHeaders(
   const user = verifyToken<SessionUser>(token, config.sessionSecret, now);
   if (!user || config.bannedEmails.has(user.email.toLowerCase())) return null;
   return user;
+}
+
+type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+type AuthClient = "web" | "mac";
+
+const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+function decodeJwtPayload(jwt: string): Record<string, unknown> | null {
+  const part = jwt.split(".")[1];
+  if (!part) return null;
+  try {
+    return JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function stringClaim(claims: Record<string, unknown>, key: string): string {
+  const value = claims[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function createAuthRoutes(config: AuthConfig, deps: { fetch?: FetchLike; now?: () => number } = {}) {
+  const fetchImpl = deps.fetch ?? fetch;
+  const now = deps.now ?? Date.now;
+  const redirectUri = `${config.radioUrl}/auth/google/callback`;
+  const routes = new Hono();
+
+  routes.get("/google", (c) => {
+    if (!config.googleClientId) {
+      console.warn("[auth] GOOGLE_CLIENT_ID not set — Google sign-in disabled");
+      return c.redirect("/?auth_error=1");
+    }
+    const client: AuthClient = c.req.query("client") === "mac" ? "mac" : "web";
+    // ponytail: state is signed but not bound to a browser cookie; login-CSRF only lets an attacker sign you into their account
+    const state = signToken(
+      { client, nonce: randomBytes(8).toString("hex"), exp: now() + STATE_TTL_MS },
+      config.sessionSecret,
+    );
+    const params = new URLSearchParams({
+      client_id: config.googleClientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      state,
+      prompt: "select_account",
+    });
+    return c.redirect(`${GOOGLE_AUTH_URL}?${params}`);
+  });
+
+  routes.get("/google/callback", async (c) => {
+    const state = verifyToken<{ client: AuthClient; exp: number }>(c.req.query("state") ?? "", config.sessionSecret, now());
+    const fail = () => c.redirect(state?.client === "mac" ? "vibez://auth?error=1" : "/?auth_error=1");
+    const code = c.req.query("code");
+    if (!state || !code) return fail();
+
+    let claims: Record<string, unknown> | null = null;
+    try {
+      const response = await fetchImpl(GOOGLE_TOKEN_URL, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: config.googleClientId,
+          client_secret: config.googleClientSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+        }).toString(),
+      });
+      if (!response.ok) throw new Error(`Google token exchange failed with status ${response.status}`);
+      const body = (await response.json()) as { id_token?: string };
+      // The ID token comes straight from Google's token endpoint over TLS, so its signature needs no extra check.
+      claims = body.id_token ? decodeJwtPayload(body.id_token) : null;
+    } catch (err) {
+      console.warn("[auth] Google sign-in failed", err);
+      return fail();
+    }
+
+    const email = claims ? stringClaim(claims, "email").toLowerCase() : "";
+    if (!claims || claims.aud !== config.googleClientId || claims.email_verified !== true || !email || config.bannedEmails.has(email)) {
+      return fail();
+    }
+
+    const name = stringClaim(claims, "name") || email.split("@")[0];
+    const token = createSessionToken(
+      {
+        email,
+        name,
+        givenName: stringClaim(claims, "given_name") || name,
+        picture: stringClaim(claims, "picture") || null,
+      },
+      config.sessionSecret,
+      now(),
+    );
+
+    if (state.client === "mac") return c.redirect(`vibez://auth?token=${encodeURIComponent(token)}`);
+    setCookie(c, SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: config.radioUrl.startsWith("https://"),
+      sameSite: "Lax",
+      path: "/",
+      maxAge: SESSION_TTL_MS / 1000,
+    });
+    return c.redirect("/");
+  });
+
+  routes.post("/logout", (c) => {
+    deleteCookie(c, SESSION_COOKIE, { path: "/" });
+    return c.body(null, 204);
+  });
+
+  routes.get("/me", (c) => {
+    const user = sessionFromHeaders(
+      { cookie: c.req.header("cookie"), authorization: c.req.header("authorization") },
+      config,
+      now(),
+    );
+    if (!user) return c.json({ error: "unauthorized" }, 401);
+    return c.json({
+      email: user.email,
+      name: user.name,
+      givenName: user.givenName,
+      picture: user.picture,
+      isAdmin: config.adminEmails.has(user.email.toLowerCase()),
+    });
+  });
+
+  return routes;
 }
