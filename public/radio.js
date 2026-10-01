@@ -738,8 +738,13 @@
   }
 
   signOutBtn.addEventListener("click", async () => {
-    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
-    location.reload();
+    try {
+      await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    } catch {
+      showError("Sign out failed, reloading anyway");
+    } finally {
+      location.reload();
+    }
   });
 
   if (new URLSearchParams(location.search).has("auth_error")) {
