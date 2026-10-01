@@ -362,8 +362,12 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "stream:refresh": {
       if (!ch.trackUrl) return sendError(conn, "No track is loaded");
+      const url = ch.trackUrl;
       try {
-        const fresh = await resolveStreamUrl(ch.trackUrl);
+        const fresh = await resolveStreamUrl(url);
+        // The track (or the sender's membership) may have changed while this was in flight —
+        // don't clobber a newer track's stream URL with a stale resolution.
+        if (!stillMember(conn, ch) || ch.trackUrl !== url) return;
         ch.streamUrl = fresh;
         send(conn, { type: "stream:refreshed", streamUrl: fresh });
       } catch (err) {

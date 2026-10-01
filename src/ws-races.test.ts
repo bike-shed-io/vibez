@@ -165,6 +165,37 @@ describe("queue:add races (membership lost mid-resolve)", () => {
   });
 });
 
+describe("stream:refresh races (track changes mid-resolve)", () => {
+  test("a track change while refresh is pending does not clobber the new track's stream URL", async () => {
+    const pat = await connect("pat", "Pat", user("pat@example.com", "Pat"));
+    const id = await goLive(pat);
+    const channel = channels.get(id)!;
+
+    resolveTracksImpl = async () => [{ url: "https://soundcloud.com/first", title: "First", artwork: null }];
+    resolveStreamUrlImpl = async () => "https://mock.sndcdn.com/first.mp3";
+    await send(pat, { type: "dj:play", url: "https://soundcloud.com/first" });
+    expect(channel.trackUrl).toBe("https://soundcloud.com/first");
+
+    const refreshGate = deferred<string>();
+    resolveStreamUrlImpl = () => refreshGate.promise;
+    const pending = handleMessage("pat", JSON.stringify({ type: "stream:refresh" }));
+
+    // While the refresh for "first" is still in flight, the DJ moves on to a new track.
+    resolveTracksImpl = async () => [{ url: "https://soundcloud.com/second", title: "Second", artwork: null }];
+    resolveStreamUrlImpl = async () => "https://mock.sndcdn.com/second.mp3";
+    await send(pat, { type: "dj:play", url: "https://soundcloud.com/second" });
+    expect(channel.trackUrl).toBe("https://soundcloud.com/second");
+    expect(channel.streamUrl).toBe("https://mock.sndcdn.com/second.mp3");
+
+    // The stale "first" refresh resolves last - it must not stomp the new track's stream URL.
+    refreshGate.resolve("https://mock.sndcdn.com/stale-first.mp3");
+    await pending;
+
+    expect(channel.trackUrl).toBe("https://soundcloud.com/second");
+    expect(channel.streamUrl).toBe("https://mock.sndcdn.com/second.mp3");
+  });
+});
+
 describe("queue advance races (duplicate concurrent advances)", () => {
   function pushQueueItems(items: QueueItem[], channelId: string) {
     const channel = channels.get(channelId)!;
