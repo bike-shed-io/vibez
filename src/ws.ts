@@ -1,4 +1,5 @@
 import type { WSContext } from "hono/ws";
+import type { SessionUser } from "./auth";
 import { notifications } from "./notifications";
 import {
   station, getSnapshot, setTrack, claimDj, releaseDj, isDj,
@@ -13,6 +14,7 @@ type Conn = {
   id: string;
   name: string;
   ws: WSContext;
+  user: SessionUser | null;
 };
 
 const connections = new Map<string, Conn>();
@@ -77,9 +79,9 @@ async function playNextFromQueue(depth = 0): Promise<void> {
   broadcastQueue();
 }
 
-export function handleOpen(ws: WSContext, id: string) {
+export function handleOpen(ws: WSContext, id: string, user: SessionUser | null = null) {
   // Connection is registered but not yet named — wait for "join" message
-  connections.set(id, { id, name: "Anonymous", ws });
+  connections.set(id, { id, name: "Anonymous", ws, user });
 }
 
 export function handleClose(id: string) {
@@ -120,6 +122,10 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
     }
 
     case "dj:claim": {
+      if (!conn.user) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Sign in to DJ" }));
+        return;
+      }
       if (station.djId && station.djId !== id) {
         const djStillPresent = station.listeners.has(station.djId);
         if (djStillPresent && !djLeaseIsStale()) {
@@ -128,10 +134,14 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
         }
         releaseDj();
       }
-      const name = conn.name;
+      const name = String(msg.djName ?? "").trim().slice(0, 30) || conn.name || conn.user.givenName;
+      conn.name = name;
+      const listener = station.listeners.get(id);
+      if (listener) listener.name = name;
       claimDj(id, name);
       void notifications.notifyDjStarted(name);
       broadcast({ type: "dj:changed", djName: name });
+      broadcastListeners();
       break;
     }
 
@@ -246,6 +256,10 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "queue:add": {
       if (!station.listeners.has(id)) return;
+      if (!conn.user) {
+        conn.ws.send(JSON.stringify({ type: "error", message: "Sign in to DJ" }));
+        return;
+      }
       const url = String(msg.url || "").trim();
       if (!url) {
         conn.ws.send(JSON.stringify({ type: "error", message: "URL is required" }));

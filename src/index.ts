@@ -1,38 +1,34 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { basicAuth } from "hono/basic-auth";
 import { createBunWebSocket } from "hono/bun";
 import { handleOpen, handleClose, handleMessage } from "./ws";
 import { startSlack } from "./slack";
+import { createAuthRoutes, loadAuthConfig, sessionFromHeaders } from "./auth";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
+const authConfig = loadAuthConfig();
 
 const app = new Hono();
 
-// Optional Basic Auth — protects all routes when AUTH_PASSWORD is set
-// WebSocket upgrades are excluded (the page itself requires auth to load)
-const authPassword = process.env.AUTH_PASSWORD;
-if (authPassword) {
-  const auth = basicAuth({
-    verifyUser: (_username, password) => password === authPassword,
-  });
-  app.use("*", async (c, next) => {
-    if (c.req.header("upgrade") === "websocket") return next();
-    return auth(c, next);
-  });
-}
+app.route("/auth", createAuthRoutes(authConfig));
 
-// WebSocket endpoint
+// WebSocket endpoint — everyone may listen; the session (cookie or Bearer) only unlocks DJ/queue actions
 app.get(
   "/ws",
-  upgradeWebSocket(() => {
+  upgradeWebSocket((c) => {
     const id = crypto.randomUUID();
+    const user = sessionFromHeaders(
+      { cookie: c.req.header("cookie"), authorization: c.req.header("authorization") },
+      authConfig,
+      Date.now(),
+    );
     return {
       onOpen(_evt, ws) {
-        handleOpen(ws, id);
+        handleOpen(ws, id, user);
       },
       onMessage(evt, _ws) {
-        handleMessage(id, evt.data);
+        // Bun delivers text frames as strings and binary frames as buffers, never Blobs
+        handleMessage(id, evt.data as string | ArrayBuffer);
       },
       onClose() {
         handleClose(id);

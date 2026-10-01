@@ -2,13 +2,17 @@
 #
 # Required GitHub Secrets (Settings → Secrets and variables → Actions):
 #   SSH_PRIVATE_KEY                 - private key for vibez@188.245.49.145 (contents of deploy_vibez_ed25519)
-#   AUTH_PASSWORD                   - basic auth password for web UI
+#   GOOGLE_CLIENT_ID                - Google OAuth client id (Web application)
+#   GOOGLE_CLIENT_SECRET            - Google OAuth client secret
+#   SESSION_SECRET                  - random secret that signs session tokens (openssl rand -hex 32)
 #   SLACK_NOTIFICATIONS_WEBHOOK_URL - Slack incoming webhook for deploy notifications
 #
 # Optional GitHub Secrets:
 #   SLACK_BOT_TOKEN                 - Slack bot token (Socket Mode, xoxb-...)
 #   SLACK_APP_TOKEN                 - Slack app token (Socket Mode, xapp-...)
 #   SOUNDCLOUD_CLIENT_ID            - SoundCloud streaming client ID; app can fall back to discovery
+#   ADMIN_EMAILS                    - comma-separated admin emails
+#   BANNED_EMAILS                   - comma-separated banned emails
 
 name: Deploy
 
@@ -41,7 +45,11 @@ jobs:
           cat > env/prod.env <<EOF
           PORT=3005
           RADIO_URL=https://vibez.bike-shed.io
-          AUTH_PASSWORD=${{ secrets.AUTH_PASSWORD }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+          ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}
+          BANNED_EMAILS=${{ secrets.BANNED_EMAILS }}
           SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
           SOUNDCLOUD_CLIENT_ID=${{ secrets.SOUNDCLOUD_CLIENT_ID }}

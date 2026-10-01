@@ -37,9 +37,13 @@ function resetStation() {
   station.queue = [];
 }
 
+function testUser(name: string) {
+  return { email: `${name.toLowerCase()}@example.com`, name, givenName: name, picture: null, exp: Date.now() + 60_000 };
+}
+
 async function setupDj(id: string, name: string) {
   const { ws, sent } = createFakeWs();
-  handleOpen(ws, id);
+  handleOpen(ws, id, testUser(name));
   await handleMessage(id, JSON.stringify({ type: "join", name }));
   claimDj(id, name);
   sent.length = 0; // clear setup messages
@@ -48,7 +52,7 @@ async function setupDj(id: string, name: string) {
 
 async function setupListener(id: string, name: string) {
   const { ws, sent } = createFakeWs();
-  handleOpen(ws, id);
+  handleOpen(ws, id, testUser(name));
   await handleMessage(id, JSON.stringify({ type: "join", name }));
   sent.length = 0;
   return { ws, sent };
