@@ -4,10 +4,11 @@ Native macOS alpha for vibez.
 
 ## What it is
 
-- SwiftUI menu bar app
-- opens a dedicated vibez window
-- one-time setup screen for server URL and listener name
-- Listening needs no account. Sign in with Google (Setup → Account) to DJ or add tracks. The session token is stored in Keychain (`io.bike-shed.vibez.mac` / `session`).
+- Menu-bar-only SwiftUI app: no Dock icon, no windows
+- Click the menu bar icon for everything: the live channels, now playing, go live and settings
+- Right-click the icon for Settings… and Quit Vibez
+- `vibez://channel/<id>` opens that channel (`vibez://open` just opens the popover)
+- Listening needs no account. Sign in with Google (Settings → Account) to go live or add tracks. The session token is stored in `~/Library/Application Support/Vibez/session-token` (file 0600), not Keychain, so ad-hoc-signed upgrades don't trigger a Keychain prompt.
 - native playback and WebSocket sync against the hosted vibez backend
 - native DJ controls, local volume, and local vibez range
 

@@ -18,6 +18,7 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: vibez
+        LSUIElement: true
         CFBundleURLTypes:
           - CFBundleURLName: io.bike-shed.vibez.mac
             CFBundleURLSchemes:

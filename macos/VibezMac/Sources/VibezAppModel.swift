@@ -24,7 +24,6 @@ struct QueueItem: Identifiable, Equatable {
 @MainActor
 final class VibezAppModel: NSObject, ObservableObject {
   enum ConnectionState {
-    case setupRequired
     case connecting
     case connected
     case disconnected
@@ -38,7 +37,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   private static let trustedEmailsKey = "vibez.macos.trustedEmails"
 
   @Published private(set) var configuration: VibezConfiguration?
-  @Published private(set) var connectionState: ConnectionState = .setupRequired
+  @Published private(set) var connectionState: ConnectionState = .connecting
   @Published private(set) var user: VibezUser?
   @Published private(set) var isSigningIn = false
   private let googleSignIn = GoogleSignIn()
@@ -69,12 +68,14 @@ final class VibezAppModel: NSObject, ObservableObject {
   @Published var notice: String?
   @Published private(set) var isAdmin = false
   @Published private(set) var updateRequired = false
-  @Published var djName: String
-  @Published var roomName: String
-
-  var trustedEmails: [String] {
-    get { defaults.stringArray(forKey: Self.trustedEmailsKey) ?? [] }
-    set { defaults.set(newValue, forKey: Self.trustedEmailsKey) }
+  @Published var djName: String {
+    didSet { defaults.set(djName, forKey: Self.djNameKey) }
+  }
+  @Published var roomName: String {
+    didSet { defaults.set(roomName, forKey: Self.roomNameKey) }
+  }
+  @Published var trustedEmails: [String] {
+    didSet { defaults.set(trustedEmails, forKey: Self.trustedEmailsKey) }
   }
 
   var isDJ: Bool { roles.isActiveDj }
@@ -127,6 +128,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     self.vibezRange = defaults.object(forKey: Self.rangeKey) as? Double ?? 0.2
     self.djName = defaults.string(forKey: Self.djNameKey) ?? ""
     self.roomName = defaults.string(forKey: Self.roomNameKey) ?? ""
+    self.trustedEmails = defaults.stringArray(forKey: Self.trustedEmailsKey) ?? []
     super.init()
     configurePlayer()
     loadPersistedConfiguration()
@@ -142,8 +144,6 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   var connectionLabel: String {
     switch connectionState {
-    case .setupRequired:
-      return "Setup required"
     case .connecting:
       return "Connecting…"
     case .connected:
@@ -162,13 +162,6 @@ final class VibezAppModel: NSObject, ObservableObject {
   var listenerSummary: String {
     let count = listeners.count
     return count == 1 ? "1 listener" : "\(count) listeners"
-  }
-
-  var djLine: String {
-    if let activeDjName = currentChannel?.activeDjName, !activeDjName.isEmpty {
-      return "DJ: \(activeDjName)"
-    }
-    return "No DJ in the booth"
   }
 
   var playbackLabel: String {
@@ -226,10 +219,6 @@ final class VibezAppModel: NSObject, ObservableObject {
     return count == 1 ? "1 track" : "\(count) tracks"
   }
 
-  var nextUpTitle: String? {
-    queue.first?.title
-  }
-
   func saveConfiguration(_ configuration: VibezConfiguration) async throws {
     try await validate(configuration)
 
@@ -237,6 +226,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     let encoded = try JSONEncoder().encode(configuration)
     defaults.set(encoded, forKey: Self.configurationKey)
     self.configuration = configuration
+    if djName.isEmpty { djName = configuration.listenerName }
 
     // Switching to a different server must not hand it the old server's session token.
     if let previousServerURL, serverIdentity(previousServerURL) != serverIdentity(configuration.serverURL) {
@@ -268,7 +258,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     do {
       let token = try await googleSignIn.signIn(serverURL: serverURL)
       guard SessionTokenStore.save(token) else {
-        errorMessage = "Couldn't save your sign-in to the Keychain."
+        errorMessage = "Couldn't save your sign-in."
         return
       }
       await loadUser()
@@ -321,8 +311,6 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   func goLive() {
-    defaults.set(djName, forKey: Self.djNameKey)
-    defaults.set(roomName, forKey: Self.roomNameKey)
     send(["type": "live:start", "djName": djName, "roomName": roomName, "trustedEmails": trustedEmails])
   }
 
@@ -421,11 +409,12 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func loadPersistedConfiguration() {
-    guard let data = defaults.data(forKey: Self.configurationKey),
-          let configuration = try? JSONDecoder().decode(VibezConfiguration.self, from: data) else {
-      connectionState = .setupRequired
-      return
-    }
+    let stored = defaults.data(forKey: Self.configurationKey)
+      .flatMap { try? JSONDecoder().decode(VibezConfiguration.self, from: $0) }
+    let configuration = stored ?? VibezConfiguration(
+      serverURLString: "https://vibez.bike-shed.io",
+      listenerName: Host.current().localizedName ?? "Listener"
+    )
 
     self.configuration = configuration
     if djName.isEmpty { djName = configuration.listenerName }
@@ -440,7 +429,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     guard let configuration,
           let serverURL = configuration.serverURL,
           let socketURL = webSocketURL(from: serverURL) else {
-      connectionState = .setupRequired
+      connectionState = .disconnected
       return
     }
 
@@ -503,7 +492,7 @@ final class VibezAppModel: NSObject, ObservableObject {
         }
       } catch {
         guard !Task.isCancelled else { return }
-        connectionState = configuration == nil ? .setupRequired : .disconnected
+        connectionState = .disconnected
         scheduleReconnect()
         return
       }
@@ -777,7 +766,7 @@ final class VibezAppModel: NSObject, ObservableObject {
         try await webSocketTask.send(.data(data))
       } catch {
         await MainActor.run {
-          connectionState = configuration == nil ? .setupRequired : .disconnected
+          connectionState = .disconnected
           scheduleReconnect()
         }
       }
