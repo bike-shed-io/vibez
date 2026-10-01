@@ -44,6 +44,30 @@ describe("startChannel", () => {
     expect(channel.ownerName).toBe("Pat");
     expect(channel.roomName).toHaveLength(40);
   });
+
+  test("long owner name is clamped to 30 chars", () => {
+    const longName = "A".repeat(60);
+    const channel = startChannel({ email: "test@example.com", name: longName, picture: null }, { djName: "" }, NOW).channel;
+    expect(channel.ownerName).toHaveLength(30);
+    expect(channel.ownerName).toBe("A".repeat(30));
+  });
+
+  test("re-going-live: trusted DJ keeps decks if still trusted, loses them if dropped", () => {
+    const channel = live({ trustedEmails: [ANNA] });
+    takeDecks(channel, ANNA, "Anna");
+    expect(channel.activeDjEmail).toBe(ANNA);
+    expect(channel.activeDjName).toBe("Anna");
+
+    // Re-go-live with Anna still trusted - should keep decks
+    startChannel(PAT, { djName: "Pat", roomName: "room2", trustedEmails: [ANNA] }, NOW + 1);
+    expect(channel.activeDjEmail).toBe(ANNA);
+    expect(channel.activeDjName).toBe("Anna");
+
+    // Re-go-live and drop Anna from trusted - decks go back to owner
+    startChannel(PAT, { djName: "Pat", roomName: "room3", trustedEmails: [] }, NOW + 2);
+    expect(channel.activeDjEmail).toBe("pat@example.com");
+    expect(channel.activeDjName).toBe("Pat");
+  });
 });
 
 describe("roles", () => {
@@ -85,6 +109,14 @@ describe("roles", () => {
     expect(channel.trustedEmails.size).toBe(0);
     expect(untrust(channel, "max@example.com")).toBe(false);
   });
+
+  test("long taker name is clamped to 30 chars", () => {
+    const channel = live();
+    const longName = "B".repeat(60);
+    takeDecks(channel, ANNA, longName);
+    expect(channel.activeDjName).toHaveLength(30);
+    expect(channel.activeDjName).toBe("B".repeat(30));
+  });
 });
 
 describe("members and DJ presence", () => {
@@ -123,6 +155,24 @@ describe("members and DJ presence", () => {
     expect(addMember(channel, "c-listener", { name: "Max", email: null, connectedAt: NOW })).toBe(false);
     expect(addMember(channel, "c-pat-2", { name: "DJ Pat", email: "PAT@example.com", connectedAt: NOW })).toBe(true);
     expect(channel.activeDjGoneSince).toBeNull();
+  });
+
+  test("owner DJ leaving doesn't give decks to trusted member", () => {
+    const channel = live();
+    addMember(channel, "c-pat", { name: "DJ Pat", email: "pat@example.com", connectedAt: NOW });
+    addMember(channel, "c-anna", { name: "Anna", email: ANNA, connectedAt: NOW });
+
+    // Owner (Pat) is the active DJ, Anna is trusted but doesn't have decks
+    expect(channel.activeDjEmail).toBe("pat@example.com");
+    expect(channel.activeDjName).toBe("DJ Pat");
+
+    // Pat's connection leaves
+    expect(removeMember(channel, "c-pat", NOW)).toBe(true);
+
+    // Decks should go to away state, not to Anna
+    expect(channel.activeDjGoneSince).toBe(NOW);
+    expect(channel.activeDjEmail).toBe("pat@example.com"); // still the owner
+    expect(channel.activeDjName).toBe("DJ Pat"); // name unchanged
   });
 });
 

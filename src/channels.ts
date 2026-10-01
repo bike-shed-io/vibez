@@ -121,7 +121,7 @@ export function startChannel(
   now: number,
 ): { channel: Channel; created: boolean } {
   const ownerEmail = normalizeEmail(owner.email);
-  const ownerName = cleanText(options.djName, 30) || owner.name;
+  const ownerName = cleanText(options.djName, 30) || cleanText(owner.name, 30) || "DJ";
   const roomName = cleanRoomName(options.roomName);
   const trustedEmails = parseTrusted(options.trustedEmails, ownerEmail);
 
@@ -211,7 +211,11 @@ export function canTakeDecks(ch: Channel, email: string | null): boolean {
 
 export function takeDecks(ch: Channel, email: string, name: string) {
   const normalized = normalizeEmail(email);
-  setActiveDj(ch, normalized, normalized === ch.ownerEmail ? ch.ownerName : name);
+  let djName = cleanText(name, 30);
+  if (!djName) {
+    djName = normalized.split("@")[0];
+  }
+  setActiveDj(ch, normalized, normalized === ch.ownerEmail ? ch.ownerName : djName);
 }
 
 /** Returns true when the email was newly trusted. */
