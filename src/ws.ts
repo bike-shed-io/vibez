@@ -1,102 +1,214 @@
 import type { WSContext } from "hono/ws";
-import type { SessionUser } from "./auth";
+import { parseEmailList, type SessionUser } from "./auth";
 import { notifications } from "./notifications";
 import {
-  station, getSnapshot, setTrack, claimDj, releaseDj, isDj,
-  listenerNames, listenerCount, touchDjHeartbeat,
-  addToQueue, removeFromQueue, reorderQueue, shuffleQueue,
-  popQueue, getQueueSnapshot, clearQueue, clearPlayback,
-  type QueueItem,
-} from "./station";
+  addMember, addToQueue, canTakeDecks, channelInfo, channels, cleanRoomName, clearPlayback, directory,
+  endChannel, memberNames, playbackSnapshot, popQueue, removeFromQueue, removeMember, reorderQueue,
+  rolesFor, setTrack, shuffleQueue, startChannel, sweepChannels, takeDecks, trust, untrust,
+  type Channel, type EndReason,
+} from "./channels";
 import { resolveStreamUrl, resolveTracks } from "./soundcloud";
+
+export const PROTOCOL_VERSION = 2;
+export const UPDATE_MESSAGE = "Update Vibez: brew upgrade --cask vibez";
+const DIRECTORY_THROTTLE_MS = 1_000;
+const MAX_SKIP_ATTEMPTS = 5;
 
 type Conn = {
   id: string;
-  name: string;
   ws: WSContext;
   user: SessionUser | null;
+  name: string;
+  greeted: boolean;
+  channelId: string | null;
 };
 
 const connections = new Map<string, Conn>();
-const DJ_HEARTBEAT_TIMEOUT_MS = 20_000;
 
-function djLeaseIsStale() {
-  if (!station.djId) return false;
-  if (!station.djHeartbeatAt) return true;
-  return Date.now() - station.djHeartbeatAt > DJ_HEARTBEAT_TIMEOUT_MS;
+function send(conn: Conn, msg: object) {
+  conn.ws.send(JSON.stringify(msg));
 }
 
-function broadcast(msg: object, exclude?: string) {
+function sendError(conn: Conn, message: string, code?: string) {
+  send(conn, code ? { type: "error", code, message } : { type: "error", message });
+}
+
+function emailOf(conn: Conn): string | null {
+  return conn.user ? conn.user.email.toLowerCase() : null;
+}
+
+function isAdmin(conn: Conn): boolean {
+  const email = emailOf(conn);
+  return !!email && parseEmailList(process.env.ADMIN_EMAILS).has(email);
+}
+
+function membersOf(ch: Channel): Conn[] {
+  const result: Conn[] = [];
+  for (const id of ch.members.keys()) {
+    const conn = connections.get(id);
+    if (conn) result.push(conn);
+  }
+  return result;
+}
+
+function broadcastChannel(ch: Channel, msg: object, excludeId?: string) {
   const data = JSON.stringify(msg);
-  for (const [id, conn] of connections) {
-    if (id !== exclude) {
-      conn.ws.send(data);
+  for (const conn of membersOf(ch)) {
+    if (conn.id !== excludeId) conn.ws.send(data);
+  }
+}
+
+// --- Directory (everyone sees it; throttled) ---
+
+let directoryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleDirectory() {
+  if (directoryTimer) return;
+  directoryTimer = setTimeout(flushDirectory, DIRECTORY_THROTTLE_MS);
+}
+
+export function flushDirectory() {
+  if (directoryTimer) {
+    clearTimeout(directoryTimer);
+    directoryTimer = null;
+  }
+  const data = JSON.stringify({ type: "channels", channels: directory() });
+  for (const conn of connections.values()) {
+    if (conn.greeted) conn.ws.send(data);
+  }
+}
+
+// --- Channel state ---
+
+function sendChannelState(conn: Conn, ch: Channel) {
+  send(conn, { type: "channel:state", channel: channelInfo(ch), roles: rolesFor(ch, emailOf(conn)), ...playbackSnapshot(ch) });
+}
+
+function sendChannelUpdate(ch: Channel, notice?: string) {
+  for (const conn of membersOf(ch)) {
+    send(conn, {
+      type: "channel:update",
+      channel: channelInfo(ch),
+      roles: rolesFor(ch, emailOf(conn)),
+      ...(notice ? { notice } : {}),
+    });
+  }
+  scheduleDirectory();
+}
+
+function signedInPeople(ch: Channel) {
+  const people = new Map<string, { name: string; email: string; trusted: boolean }>();
+  for (const member of ch.members.values()) {
+    if (member.email && member.email !== ch.ownerEmail && !people.has(member.email)) {
+      people.set(member.email, { name: member.name, email: member.email, trusted: ch.trustedEmails.has(member.email) });
     }
   }
+  return [...people.values()];
 }
 
-function broadcastListeners() {
-  broadcast({ type: "listeners", count: listenerCount(), names: listenerNames() });
+function sendListeners(ch: Channel) {
+  const names = memberNames(ch);
+  for (const conn of membersOf(ch)) {
+    const msg: Record<string, unknown> = { type: "listeners", count: names.length, names };
+    if (rolesFor(ch, emailOf(conn)).isOwner) msg.people = signedInPeople(ch);
+    send(conn, msg);
+  }
+  scheduleDirectory();
 }
 
-function broadcastQueue() {
-  broadcast({ type: "queue", items: getQueueSnapshot() });
+function broadcastQueue(ch: Channel) {
+  broadcastChannel(ch, { type: "queue", items: ch.queue });
 }
 
-const MAX_SKIP_ATTEMPTS = 5;
+function joinChannel(conn: Conn, ch: Channel) {
+  leaveChannel(conn);
+  conn.channelId = ch.id;
+  const djChanged = addMember(ch, conn.id, { name: conn.name, email: emailOf(conn), connectedAt: Date.now() });
+  sendChannelState(conn, ch);
+  if (djChanged) sendChannelUpdate(ch);
+  sendListeners(ch);
+}
 
-async function playNextFromQueue(depth = 0): Promise<void> {
+function leaveChannel(conn: Conn, now = Date.now()) {
+  const ch = conn.channelId ? channels.get(conn.channelId) : undefined;
+  conn.channelId = null;
+  if (!ch) return;
+  if (removeMember(ch, conn.id, now)) sendChannelUpdate(ch);
+  sendListeners(ch);
+}
+
+function finishChannel(ch: Channel, reason: EndReason) {
+  endChannel(ch.id);
+  for (const conn of membersOf(ch)) {
+    conn.channelId = null;
+    send(conn, { type: "channel:ended", channelId: ch.id, reason });
+  }
+  ch.members.clear();
+  scheduleDirectory();
+}
+
+export function runSweep(now = Date.now()) {
+  for (const { channel, reason } of sweepChannels(now)) finishChannel(channel, reason);
+}
+
+// --- Playback ---
+
+function startTrack(ch: Channel, url: string, title: string | null, artwork: string | null, streamUrl: string | null) {
+  setTrack(ch, url, title, artwork, streamUrl);
+  broadcastChannel(ch, { type: "track", url, title, artwork, streamUrl });
+  broadcastChannel(ch, { type: "play", position: 0, timestamp: ch.positionTimestamp });
+  scheduleDirectory();
+}
+
+function stopPlayback(ch: Channel) {
+  clearPlayback(ch);
+  broadcastChannel(ch, { type: "track", url: null, title: null, artwork: null, streamUrl: null });
+  broadcastChannel(ch, { type: "pause", position: 0 });
+  broadcastQueue(ch);
+  scheduleDirectory();
+}
+
+async function playNextFromQueue(ch: Channel, depth = 0): Promise<void> {
   if (depth >= MAX_SKIP_ATTEMPTS) {
     console.warn("[queue] Gave up after skipping", depth, "unplayable tracks");
-    clearPlayback();
-    broadcast({ type: "track", url: null, title: null, artwork: null, streamUrl: null });
-    broadcast({ type: "pause", position: 0 });
-    broadcastQueue();
-    return;
+    return stopPlayback(ch);
   }
-
-  const next = popQueue();
-  if (!next) {
-    clearPlayback();
-    broadcast({ type: "track", url: null, title: null, artwork: null, streamUrl: null });
-    broadcast({ type: "pause", position: 0 });
-    broadcastQueue();
-    return;
-  }
+  const next = popQueue(ch);
+  if (!next) return stopPlayback(ch);
 
   let streamUrl: string | null = null;
   try {
     streamUrl = await resolveStreamUrl(next.url);
   } catch (err) {
     console.error(`[queue] Skipping "${next.title}" (${next.url}):`, err);
-    broadcastQueue();
-    return playNextFromQueue(depth + 1);
+    broadcastQueue(ch);
+    return playNextFromQueue(ch, depth + 1);
   }
-
-  setTrack(next.url, next.title, next.artwork, streamUrl);
-  broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
-  broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
-  broadcastQueue();
+  if (!channels.has(ch.id)) return;
+  startTrack(ch, next.url, next.title, next.artwork, streamUrl);
+  broadcastQueue(ch);
 }
 
+async function resolveOrReport(conn: Conn, url: string) {
+  try {
+    return await resolveTracks(url);
+  } catch (err: any) {
+    sendError(conn, err?.message ?? "Failed to resolve URL");
+    return null;
+  }
+}
+
+// --- Connections ---
+
 export function handleOpen(ws: WSContext, id: string, user: SessionUser | null = null) {
-  // Connection is registered but not yet named — wait for "join" message
-  connections.set(id, { id, name: "Anonymous", ws, user });
+  connections.set(id, { id, ws, user, name: user?.givenName ?? "Anonymous", greeted: false, channelId: null });
 }
 
 export function handleClose(id: string) {
   const conn = connections.get(id);
   if (!conn) return;
-
-  station.listeners.delete(id);
+  leaveChannel(conn);
   connections.delete(id);
-
-  if (isDj(id)) {
-    releaseDj();
-    broadcast({ type: "dj:changed", djName: null });
-  }
-
-  broadcastListeners();
 }
 
 export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint8Array) {
@@ -107,302 +219,227 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
   try {
     msg = JSON.parse(typeof raw === "string" ? raw : new TextDecoder().decode(raw));
   } catch {
-    conn.ws.send(JSON.stringify({ type: "error", message: "Invalid JSON" }));
+    sendError(conn, "Invalid JSON");
+    return;
+  }
+
+  if (!conn.greeted) {
+    if (msg.type !== "hello" || Number(msg.protocol) !== PROTOCOL_VERSION) {
+      sendError(conn, UPDATE_MESSAGE, "protocol");
+      conn.ws.close(4000, "Unsupported protocol");
+      return;
+    }
+    conn.greeted = true;
+    conn.name = String(msg.name ?? "").trim().slice(0, 30) || conn.name;
+    const user = conn.user;
+    send(conn, {
+      type: "welcome",
+      user: user ? { email: user.email, name: user.name, givenName: user.givenName, picture: user.picture } : null,
+      isAdmin: isAdmin(conn),
+    });
+    send(conn, { type: "channels", channels: directory() });
+    return;
+  }
+
+  // Messages that work from the lobby
+  switch (msg.type) {
+    case "hello":
+      return;
+
+    case "channel:join": {
+      const target = channels.get(String(msg.channelId ?? ""));
+      if (!target) return sendError(conn, "That channel ended", "channel-not-found");
+      if (target.id === conn.channelId) return sendChannelState(conn, target);
+      return joinChannel(conn, target);
+    }
+
+    case "channel:leave":
+      return leaveChannel(conn);
+
+    case "live:start": {
+      if (!conn.user) return sendError(conn, "Sign in to DJ");
+      const { channel, created } = startChannel(
+        { email: conn.user.email, name: conn.name, picture: conn.user.picture },
+        { djName: msg.djName, roomName: msg.roomName, trustedEmails: msg.trustedEmails },
+        Date.now(),
+      );
+      conn.name = channel.ownerName;
+      if (conn.channelId === channel.id) {
+        const member = channel.members.get(conn.id);
+        if (member) member.name = conn.name;
+        sendChannelState(conn, channel);
+      } else {
+        joinChannel(conn, channel);
+      }
+      sendChannelUpdate(channel);
+      sendListeners(channel);
+      if (created) {
+        void notifications.notifyWentLive({
+          ownerEmail: channel.ownerEmail,
+          ownerName: channel.ownerName,
+          roomName: channel.roomName,
+          channelId: channel.id,
+        });
+      }
+      return;
+    }
+
+    case "admin:end": {
+      if (!isAdmin(conn)) return sendError(conn, "Admins only");
+      const target = channels.get(String(msg.channelId ?? ""));
+      if (target) finishChannel(target, "admin");
+      return;
+    }
+  }
+
+  const ch = conn.channelId ? channels.get(conn.channelId) : undefined;
+  if (!ch) return sendError(conn, "Join a channel first");
+  const email = emailOf(conn);
+  const roles = rolesFor(ch, email);
+
+  // Messages for any member, or the owner
+  switch (msg.type) {
+    case "live:end":
+      if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
+      return finishChannel(ch, "ended");
+
+    case "live:rename":
+      if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
+      ch.roomName = cleanRoomName(msg.roomName);
+      return sendChannelUpdate(ch);
+
+    case "live:trust":
+      if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
+      if (trust(ch, String(msg.email ?? ""))) sendChannelUpdate(ch);
+      return sendListeners(ch);
+
+    case "live:untrust": {
+      if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
+      const tookBack = untrust(ch, String(msg.email ?? ""));
+      sendChannelUpdate(ch, tookBack ? `${ch.ownerName} took the decks back` : undefined);
+      return sendListeners(ch);
+    }
+
+    case "dj:take":
+      if (!canTakeDecks(ch, email)) return sendError(conn, "Not trusted in this channel");
+      if (roles.isActiveDj) return;
+      takeDecks(ch, email!, conn.name);
+      return sendChannelUpdate(ch, `${ch.activeDjName} took the decks`);
+
+    case "vibez:boost": {
+      const boost = Math.max(-1, Math.min(1, Number(msg.boost ?? 0)));
+      ch.vibezBoost = boost;
+      return broadcastChannel(ch, { type: "vibez", boost });
+    }
+
+    case "stream:refresh": {
+      if (!ch.trackUrl) return sendError(conn, "No track is loaded");
+      try {
+        const fresh = await resolveStreamUrl(ch.trackUrl);
+        ch.streamUrl = fresh;
+        send(conn, { type: "stream:refreshed", streamUrl: fresh });
+      } catch (err) {
+        console.error("[ws] stream:refresh failed:", err);
+        sendError(conn, "Failed to refresh stream URL");
+      }
+      return;
+    }
+
+    case "queue:add": {
+      if (!conn.user) return sendError(conn, "Sign in to DJ");
+      const url = String(msg.url || "").trim();
+      if (!url) return sendError(conn, "URL is required");
+      const tracks = await resolveOrReport(conn, url);
+      if (!tracks || !channels.has(ch.id)) return;
+      for (const t of tracks) {
+        addToQueue(ch, { id: crypto.randomUUID(), url: t.url, title: t.title, artwork: t.artwork, addedBy: conn.name });
+      }
+      return broadcastQueue(ch);
+    }
+  }
+
+  // Everything below is for the active DJ only
+  if (!roles.isActiveDj) {
+    if (msg.type !== "track:ended" && msg.type !== "dj:position") sendError(conn, "Only the DJ can do that");
     return;
   }
 
   switch (msg.type) {
-    case "join": {
-      const name = String(msg.name || "Anonymous").slice(0, 30);
-      conn.name = name;
-      station.listeners.set(id, { name, connectedAt: Date.now() });
-      conn.ws.send(JSON.stringify({ type: "sync", ...getSnapshot() }));
-      broadcastListeners();
-      break;
-    }
-
-    case "dj:claim": {
-      if (!conn.user) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Sign in to DJ" }));
-        return;
-      }
-      if (station.djId && station.djId !== id) {
-        const djStillPresent = station.listeners.has(station.djId);
-        if (djStillPresent && !djLeaseIsStale()) {
-          conn.ws.send(JSON.stringify({ type: "error", message: `${station.djName} is already DJing` }));
-          return;
-        }
-        releaseDj();
-      }
-      const name = String(msg.djName ?? "").trim().slice(0, 30) || conn.name || conn.user.givenName;
-      conn.name = name;
-      const listener = station.listeners.get(id);
-      if (listener) listener.name = name;
-      claimDj(id, name);
-      void notifications.notifyWentLive({ ownerEmail: conn.user.email, ownerName: name, roomName: null, channelId: null });
-      broadcast({ type: "dj:changed", djName: name });
-      broadcastListeners();
-      break;
-    }
-
-    case "dj:release": {
-      if (!isDj(id)) return;
-      releaseDj();
-      broadcast({ type: "dj:changed", djName: null });
-      break;
-    }
-
-    case "vibez:boost": {
-      if (!station.listeners.has(id)) return;
-      const boost = Math.max(-1, Math.min(1, Number(msg.boost ?? 0)));
-      station.vibezBoost = boost;
-      broadcast({ type: "vibez", boost });
-      break;
-    }
-
     case "dj:play": {
-      if (!isDj(id)) return;
-      touchDjHeartbeat();
-      const url = String(msg.url || "");
+      const url = String(msg.url || "").trim();
       if (!url) return;
-
-      let tracks;
-      try {
-        tracks = await resolveTracks(url);
-      } catch (err: any) {
-        conn.ws.send(JSON.stringify({ type: "error", message: err?.message ?? "Failed to resolve URL" }));
-        return;
-      }
-
-      const first = tracks[0];
+      const tracks = await resolveOrReport(conn, url);
+      if (!tracks || !channels.has(ch.id)) return;
+      const [first, ...rest] = tracks;
       let streamUrl: string | null = null;
       try {
         streamUrl = await resolveStreamUrl(first.url);
       } catch (err) {
         console.error("[ws] resolveStreamUrl failed:", err);
       }
-
-      setTrack(first.url, first.title, first.artwork, streamUrl);
-      broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
-      broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
-
-      for (const t of tracks.slice(1)) {
-        addToQueue({
-          id: crypto.randomUUID(),
-          url: t.url,
-          title: t.title,
-          artwork: t.artwork,
-          addedBy: conn.name,
-        });
+      startTrack(ch, first.url, first.title, first.artwork, streamUrl);
+      for (const t of rest) {
+        addToQueue(ch, { id: crypto.randomUUID(), url: t.url, title: t.title, artwork: t.artwork, addedBy: conn.name });
       }
-      if (tracks.length > 1) {
-        broadcastQueue();
-      }
-      break;
+      if (rest.length > 0) broadcastQueue(ch);
+      return;
     }
 
-    case "dj:pause": {
-      if (!isDj(id)) return;
-      touchDjHeartbeat();
-      station.isPlaying = false;
-      station.position = Number(msg.position ?? station.position);
-      broadcast({ type: "pause", position: station.position }, id);
-      break;
-    }
+    case "dj:pause":
+      ch.isPlaying = false;
+      ch.position = Number(msg.position ?? ch.position);
+      broadcastChannel(ch, { type: "pause", position: ch.position }, conn.id);
+      return scheduleDirectory();
 
-    case "dj:resume": {
-      if (!isDj(id)) return;
-      touchDjHeartbeat();
-      station.isPlaying = true;
-      station.position = Number(msg.position ?? station.position);
-      station.positionTimestamp = Date.now();
-      broadcast({ type: "play", position: station.position, timestamp: station.positionTimestamp }, id);
-      break;
-    }
+    case "dj:resume":
+      ch.isPlaying = true;
+      ch.position = Number(msg.position ?? ch.position);
+      ch.positionTimestamp = Date.now();
+      ch.lastPlaybackAt = ch.positionTimestamp;
+      broadcastChannel(ch, { type: "play", position: ch.position, timestamp: ch.positionTimestamp }, conn.id);
+      return scheduleDirectory();
 
-    case "dj:seek": {
-      if (!isDj(id)) return;
-      touchDjHeartbeat();
-      station.position = Number(msg.position ?? 0);
-      station.positionTimestamp = Date.now();
-      broadcast({ type: "seek", position: station.position, timestamp: station.positionTimestamp }, id);
-      break;
-    }
+    case "dj:seek":
+      ch.position = Number(msg.position ?? 0);
+      ch.positionTimestamp = Date.now();
+      return broadcastChannel(ch, { type: "seek", position: ch.position, timestamp: ch.positionTimestamp }, conn.id);
 
-    case "dj:position": {
-      if (!isDj(id)) return;
-      touchDjHeartbeat();
-      station.position = Number(msg.position ?? station.position);
-      station.positionTimestamp = Date.now();
-      // Silent update — no broadcast needed for heartbeat, listeners interpolate
-      break;
-    }
-
-    case "stream:refresh": {
-      if (!station.trackUrl) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "No track is loaded" }));
-        break;
-      }
-      try {
-        const freshStreamUrl = await resolveStreamUrl(station.trackUrl);
-        station.streamUrl = freshStreamUrl;
-        conn.ws.send(JSON.stringify({ type: "stream:refreshed", streamUrl: freshStreamUrl }));
-      } catch (err) {
-        console.error("[ws] stream:refresh failed:", err);
-        conn.ws.send(JSON.stringify({ type: "error", message: "Failed to refresh stream URL" }));
-      }
-      break;
-    }
-
-    case "queue:add": {
-      if (!station.listeners.has(id)) return;
-      if (!conn.user) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Sign in to DJ" }));
-        return;
-      }
-      const url = String(msg.url || "").trim();
-      if (!url) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "URL is required" }));
-        return;
-      }
-
-      let tracks;
-      try {
-        tracks = await resolveTracks(url);
-      } catch (err: any) {
-        conn.ws.send(JSON.stringify({ type: "error", message: err?.message ?? "Failed to resolve URL" }));
-        return;
-      }
-
-      for (const t of tracks) {
-        addToQueue({
-          id: crypto.randomUUID(),
-          url: t.url,
-          title: t.title,
-          artwork: t.artwork,
-          addedBy: conn.name,
-        });
-      }
-      broadcastQueue();
-      break;
-    }
-
-    case "queue:remove": {
-      if (!isDj(id)) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can remove queue items" }));
-        return;
-      }
-      const itemId = String(msg.itemId || "");
-      if (removeFromQueue(itemId)) {
-        broadcastQueue();
-      }
-      break;
-    }
-
-    case "queue:reorder": {
-      if (!isDj(id)) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can reorder the queue" }));
-        return;
-      }
-      const reorderId = String(msg.itemId || "");
-      const toIndex = Number(msg.toIndex ?? -1);
-      if (reorderQueue(reorderId, toIndex)) {
-        broadcastQueue();
-      }
-      break;
-    }
-
-    case "queue:shuffle": {
-      if (!isDj(id)) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can shuffle the queue" }));
-        return;
-      }
-      shuffleQueue();
-      broadcastQueue();
-      break;
-    }
-
-    case "queue:clear": {
-      if (!isDj(id)) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can clear the queue" }));
-        return;
-      }
-      touchDjHeartbeat();
-      clearQueue();
-      broadcastQueue();
-      break;
-    }
-
-    case "queue:skip": {
-      if (!isDj(id)) {
-        conn.ws.send(JSON.stringify({ type: "error", message: "Only the DJ can skip tracks" }));
-        return;
-      }
-      touchDjHeartbeat();
-      await playNextFromQueue();
-      break;
-    }
+    case "dj:position":
+      // Silent update — listeners interpolate
+      ch.position = Number(msg.position ?? ch.position);
+      ch.positionTimestamp = Date.now();
+      return;
 
     case "track:ended": {
-      if (!isDj(id)) return;
       const endedUrl = String(msg.trackUrl || "");
-      if (endedUrl && endedUrl !== station.trackUrl) return;
-      if (station.queue.length === 0) return;
-      touchDjHeartbeat();
-      await playNextFromQueue();
-      break;
+      if (endedUrl && endedUrl !== ch.trackUrl) return;
+      if (ch.queue.length === 0) {
+        ch.isPlaying = false;
+        return scheduleDirectory();
+      }
+      return playNextFromQueue(ch);
     }
 
+    case "queue:remove":
+      if (removeFromQueue(ch, String(msg.itemId || ""))) broadcastQueue(ch);
+      return;
+
+    case "queue:reorder":
+      if (reorderQueue(ch, String(msg.itemId || ""), Number(msg.toIndex ?? -1))) broadcastQueue(ch);
+      return;
+
+    case "queue:shuffle":
+      shuffleQueue(ch);
+      return broadcastQueue(ch);
+
+    case "queue:clear":
+      ch.queue = [];
+      return broadcastQueue(ch);
+
+    case "queue:skip":
+      return playNextFromQueue(ch);
+
     default:
-      conn.ws.send(JSON.stringify({ type: "error", message: `Unknown message type: ${msg.type}` }));
+      return sendError(conn, `Unknown message type: ${msg.type}`);
   }
-}
-
-// Called by Slack bot to play a track without a WS connection
-export async function playFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; count: number }> {
-  const tracks = await resolveTracks(url);
-
-  const first = tracks[0];
-  let streamUrl: string | null = null;
-  try {
-    streamUrl = await resolveStreamUrl(first.url);
-  } catch (err) {
-    console.error("[ws] resolveStreamUrl failed in playFromSlack:", err);
-  }
-
-  setTrack(first.url, first.title, first.artwork, streamUrl);
-  broadcast({ type: "track", url: station.trackUrl, title: station.trackTitle, artwork: station.trackArtwork, streamUrl: station.streamUrl });
-  broadcast({ type: "play", position: 0, timestamp: station.positionTimestamp });
-
-  for (const t of tracks.slice(1)) {
-    addToQueue({
-      id: crypto.randomUUID(),
-      url: t.url,
-      title: t.title,
-      artwork: t.artwork,
-      addedBy,
-    });
-  }
-  if (tracks.length > 1) {
-    broadcastQueue();
-  }
-
-  return { title: first.title, artwork: first.artwork, count: tracks.length };
-}
-
-export async function queueFromSlack(url: string, addedBy: string): Promise<{ title: string | null; artwork: string | null; position: number; count: number }> {
-  const tracks = await resolveTracks(url);
-
-  for (const t of tracks) {
-    addToQueue({
-      id: crypto.randomUUID(),
-      url: t.url,
-      title: t.title,
-      artwork: t.artwork,
-      addedBy,
-    });
-  }
-  broadcastQueue();
-
-  return { title: tracks[0].title, artwork: tracks[0].artwork, position: station.queue.length, count: tracks.length };
 }

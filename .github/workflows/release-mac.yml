@@ -12,7 +12,7 @@ on:
     branches: [main]
     paths:
       - 'macos/**'
-      - 'src/station.ts'
+      - 'src/channels.ts'
       - 'src/ws.ts'
 
 concurrency:

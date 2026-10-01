@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createBunWebSocket } from "hono/bun";
-import { handleOpen, handleClose, handleMessage } from "./ws";
+import { handleOpen, handleClose, handleMessage, runSweep } from "./ws";
 import { startSlack } from "./slack";
 import { createAuthRoutes, loadAuthConfig, sessionFromHeaders } from "./auth";
 
@@ -37,6 +37,9 @@ app.get(
   })
 );
 
+// Channel deep links are client-side routes
+app.get("/c/*", serveStatic({ path: "./public/index.html" }));
+
 // Static files
 app.use("/*", serveStatic({ root: "./public" }));
 
@@ -46,6 +49,8 @@ const port = Number(process.env.PORT) || 3005;
 startSlack().catch((err) => {
   console.error("[slack] Failed to start Slack bot:", err.message);
 });
+
+setInterval(() => runSweep(), 15_000);
 
 export default {
   port,
