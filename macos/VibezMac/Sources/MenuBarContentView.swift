@@ -71,8 +71,8 @@ struct MenuBarContentView: View {
               .font(.headline)
               .lineLimit(2)
 
-            if let djName = appModel.djName, !djName.isEmpty {
-              Text("DJ: \(djName)")
+            if let activeDjName = appModel.currentChannel?.activeDjName, !activeDjName.isEmpty {
+              Text("DJ: \(activeDjName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
@@ -106,10 +106,10 @@ struct MenuBarContentView: View {
               HStack(spacing: 6) {
                 ForEach(appModel.listeners, id: \.self) { listener in
                   Text(listener)
-                    .font(.caption.weight(listener == appModel.djName ? .semibold : .regular))
+                    .font(.caption.weight(listener == appModel.currentChannel?.activeDjName ? .semibold : .regular))
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
-                    .background(listener == appModel.djName ? Color.orange.opacity(0.25) : Color.secondary.opacity(0.16))
+                    .background(listener == appModel.currentChannel?.activeDjName ? Color.orange.opacity(0.25) : Color.secondary.opacity(0.16))
                     .clipShape(Capsule())
                 }
               }
@@ -238,18 +238,32 @@ struct MenuBarContentView: View {
         Divider()
 
         HStack(spacing: 10) {
-          Button {
-            if appModel.isDJ {
-              appModel.releaseDJ()
-            } else {
-              appModel.claimDJ()
+          Group {
+            if appModel.currentChannel == nil {
+              Button {
+                appModel.goLive()
+              } label: {
+                Label("Go live", systemImage: "music.mic")
+                  .frame(maxWidth: .infinity)
+              }
+              .disabled(appModel.user == nil)
+            } else if appModel.roles.isOwner {
+              Button {
+                appModel.endLive()
+              } label: {
+                Label("End", systemImage: "stop.circle")
+                  .frame(maxWidth: .infinity)
+              }
+            } else if appModel.roles.isTrusted && !appModel.roles.isActiveDj {
+              Button {
+                appModel.takeDecks()
+              } label: {
+                Label("Take the decks", systemImage: "music.mic")
+                  .frame(maxWidth: .infinity)
+              }
             }
-          } label: {
-            Label(appModel.isDJ ? "Stop DJ" : "Become DJ", systemImage: appModel.isDJ ? "stop.circle" : "music.mic")
-              .frame(maxWidth: .infinity)
           }
           .buttonStyle(.bordered)
-          .disabled(!appModel.isRoomConnected || (!appModel.isDJ && appModel.user == nil))
 
           Button {
             appModel.playTrackDraft()

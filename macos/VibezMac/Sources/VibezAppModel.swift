@@ -33,6 +33,9 @@ final class VibezAppModel: NSObject, ObservableObject {
   private static let configurationKey = "vibez.macos.configuration"
   private static let volumeKey = "vibez.macos.baseVolume"
   private static let rangeKey = "vibez.macos.vibezRange"
+  private static let djNameKey = "vibez.macos.djName"
+  private static let roomNameKey = "vibez.macos.roomName"
+  private static let trustedEmailsKey = "vibez.macos.trustedEmails"
 
   @Published private(set) var configuration: VibezConfiguration?
   @Published private(set) var connectionState: ConnectionState = .setupRequired
@@ -44,15 +47,37 @@ final class VibezAppModel: NSObject, ObservableObject {
   @Published private(set) var trackTitle: String?
   @Published private(set) var trackArtworkURL: URL?
   @Published private(set) var trackURLString: String?
-  @Published private(set) var djName: String?
   @Published private(set) var listeners: [String] = []
   @Published private(set) var errorMessage: String?
   @Published private(set) var isPlaying = false
   @Published private(set) var hasTrack = false
   @Published private(set) var currentTime: Double = 0
   @Published private(set) var duration: Double = 0
-  @Published private(set) var isDJ = false
   @Published private(set) var queue: [QueueItem] = []
+
+  @Published private(set) var directory: [DirectoryEntry] = []
+  @Published private(set) var currentChannel: ChannelInfo?
+  @Published private(set) var roles: ChannelRoles = .none {
+    didSet {
+      updateHeartbeatIfNeeded()
+      if roles.isOwner {
+        trustedEmails = roles.trustedEmails
+      }
+    }
+  }
+  @Published private(set) var trustablePeople: [TrustablePerson] = []
+  @Published var notice: String?
+  @Published private(set) var isAdmin = false
+  @Published private(set) var updateRequired = false
+  @Published var djName: String
+  @Published var roomName: String
+
+  var trustedEmails: [String] {
+    get { defaults.stringArray(forKey: Self.trustedEmailsKey) ?? [] }
+    set { defaults.set(newValue, forKey: Self.trustedEmailsKey) }
+  }
+
+  var isDJ: Bool { roles.isActiveDj }
   @Published var queueDraftURL = ""
   @Published var vibezLevel: Double = 0 {
     didSet {
@@ -95,10 +120,13 @@ final class VibezAppModel: NSObject, ObservableObject {
   private var timeObserverToken: Any?
   private var refreshPosition = 0.0
   private var currentStreamURLString: String?
+  private var pendingChannelID: String?
 
   override init() {
     self.baseVolume = defaults.object(forKey: Self.volumeKey) as? Double ?? 0.8
     self.vibezRange = defaults.object(forKey: Self.rangeKey) as? Double ?? 0.2
+    self.djName = defaults.string(forKey: Self.djNameKey) ?? ""
+    self.roomName = defaults.string(forKey: Self.roomNameKey) ?? ""
     super.init()
     configurePlayer()
     loadPersistedConfiguration()
@@ -137,8 +165,8 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   var djLine: String {
-    if let djName, !djName.isEmpty {
-      return "DJ: \(djName)"
+    if let activeDjName = currentChannel?.activeDjName, !activeDjName.isEmpty {
+      return "DJ: \(activeDjName)"
     }
     return "No DJ in the booth"
   }
@@ -272,19 +300,62 @@ final class VibezAppModel: NSObject, ObservableObject {
         SessionTokenStore.clear()
         user = nil
       } else if (200..<300).contains(status) {
-        user = try JSONDecoder().decode(VibezUser.self, from: data)
+        let decoded = try JSONDecoder().decode(VibezUser.self, from: data)
+        user = decoded
+        if djName.isEmpty { djName = decoded.givenName }
       }
     } catch {
       // Offline: keep the token, try again on next connect
     }
   }
 
-  func claimDJ() {
-    send(["type": "dj:claim", "djName": configuration?.listenerName ?? ""])
+  func joinChannel(id: String) {
+    send(["type": "channel:join", "channelId": id])
   }
 
-  func releaseDJ() {
-    send(["type": "dj:release"])
+  func leaveChannel() {
+    send(["type": "channel:leave"])
+    currentChannel = nil
+    roles = .none
+    clearPlayback()
+  }
+
+  func goLive() {
+    defaults.set(djName, forKey: Self.djNameKey)
+    defaults.set(roomName, forKey: Self.roomNameKey)
+    send(["type": "live:start", "djName": djName, "roomName": roomName, "trustedEmails": trustedEmails])
+  }
+
+  func endLive() {
+    send(["type": "live:end"])
+  }
+
+  func renameRoom(_ name: String) {
+    send(["type": "live:rename", "roomName": name])
+  }
+
+  func trust(email: String) {
+    send(["type": "live:trust", "email": email])
+  }
+
+  func untrust(email: String) {
+    send(["type": "live:untrust", "email": email])
+  }
+
+  func takeDecks() {
+    send(["type": "dj:take"])
+  }
+
+  func adminEnd(channelID: String) {
+    send(["type": "admin:end", "channelId": channelID])
+  }
+
+  func openChannelLink(id: String) {
+    if connectionState == .connected {
+      joinChannel(id: id)
+    } else {
+      pendingChannelID = id
+    }
   }
 
   func playTrackDraft() {
@@ -357,6 +428,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
 
     self.configuration = configuration
+    if djName.isEmpty { djName = configuration.listenerName }
     if let encoded = try? JSONEncoder().encode(configuration) {
       defaults.set(encoded, forKey: Self.configurationKey)
     }
@@ -388,7 +460,7 @@ final class VibezAppModel: NSObject, ObservableObject {
       await self.receiveLoop(for: task)
     }
 
-    send(["type": "join", "name": configuration.listenerName])
+    send(["type": "hello", "protocol": 2, "name": configuration.listenerName])
   }
 
   private func disconnect() {
@@ -406,6 +478,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func scheduleReconnect() {
+    if updateRequired { return }
     reconnectTask?.cancel()
     guard configuration != nil else { return }
 
@@ -445,8 +518,37 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
 
     switch type {
-    case "sync":
-      applyStationSnapshot(message)
+    case "welcome":
+      connectionState = .connected
+      errorMessage = nil
+      isAdmin = message["isAdmin"] as? Bool ?? false
+      if let pendingChannelID {
+        joinChannel(id: pendingChannelID)
+        self.pendingChannelID = nil
+      } else if let currentChannel {
+        joinChannel(id: currentChannel.id)
+      }
+    case "channels":
+      directory = decode([DirectoryEntry].self, from: message["channels"]) ?? []
+    case "channel:state":
+      guard let channel = decode(ChannelInfo.self, from: message["channel"]),
+            let roles = decode(ChannelRoles.self, from: message["roles"]) else { return }
+      currentChannel = channel
+      self.roles = roles
+      applyChannelState(message)
+    case "channel:update":
+      guard let channel = decode(ChannelInfo.self, from: message["channel"]),
+            let roles = decode(ChannelRoles.self, from: message["roles"]) else { return }
+      currentChannel = channel
+      self.roles = roles
+      if let noticeText = message["notice"] as? String {
+        notice = noticeText
+      }
+    case "channel:ended":
+      currentChannel = nil
+      roles = .none
+      clearPlayback()
+      notice = "That channel ended."
     case "track":
       applyTrack(message)
     case "play":
@@ -455,15 +557,9 @@ final class VibezAppModel: NSObject, ObservableObject {
       handlePause(message)
     case "seek":
       handleSeek(message)
-    case "dj:changed":
-      djName = message["djName"] as? String
-      isDJ = djName == configuration?.listenerName
-      if djName == nil {
-        vibezLevel = 0
-      }
-      updateHeartbeatIfNeeded()
     case "listeners":
       listeners = (message["names"] as? [String]) ?? []
+      trustablePeople = decode([TrustablePerson].self, from: message["people"]) ?? []
     case "vibez":
       vibezLevel = clampSigned(message["boost"] as? Double ?? 0)
     case "queue":
@@ -473,17 +569,31 @@ final class VibezAppModel: NSObject, ObservableObject {
         refreshPlayback(with: rawURL)
       }
     case "error":
-      errorMessage = message["message"] as? String
+      let code = message["code"] as? String
+      let errorText = message["message"] as? String
+      if code == "protocol" {
+        updateRequired = true
+        errorMessage = errorText
+        return
+      }
+      if code == "channel-not-found" {
+        notice = "That channel ended."
+        return
+      }
+      errorMessage = errorText
     default:
       break
     }
   }
 
-  private func applyStationSnapshot(_ message: [String: Any]) {
-    connectionState = .connected
-    errorMessage = nil
-    djName = message["djName"] as? String
-    isDJ = djName == configuration?.listenerName
+  /// Decodes a sub-object of an already-parsed `[String: Any]` message by re-serializing it to JSON.
+  private func decode<T: Decodable>(_ type: T.Type, from rawValue: Any?) -> T? {
+    guard let rawValue, JSONSerialization.isValidJSONObject(rawValue) else { return nil }
+    guard let data = try? JSONSerialization.data(withJSONObject: rawValue) else { return nil }
+    return try? JSONDecoder().decode(T.self, from: data)
+  }
+
+  private func applyChannelState(_ message: [String: Any]) {
     listeners = (message["listeners"] as? [String]) ?? listeners
     vibezLevel = clampSigned(message["vibezBoost"] as? Double ?? 0)
     applyTrack(message)
@@ -497,6 +607,12 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
 
     updateHeartbeatIfNeeded()
+  }
+
+  private func clearPlayback() {
+    applyTrack([:])
+    player.pause()
+    isPlaying = false
   }
 
   private func applyTrack(_ message: [String: Any]) {

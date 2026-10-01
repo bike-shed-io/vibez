@@ -302,22 +302,28 @@ struct MainWindowView: View {
 
           Spacer()
 
-          if appModel.isDJ {
+          if appModel.currentChannel == nil {
             Button {
-              appModel.releaseDJ()
+              appModel.goLive()
             } label: {
-              Label("Stop DJing", systemImage: "stop.circle.fill")
-            }
-            .buttonStyle(.bordered)
-            .disabled(!appModel.isRoomConnected)
-          } else {
-            Button {
-              appModel.claimDJ()
-            } label: {
-              Label("Become DJ", systemImage: "music.mic.circle.fill")
+              Label("Go live", systemImage: "music.mic.circle.fill")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!appModel.isRoomConnected || appModel.user == nil)
+            .disabled(appModel.user == nil)
+          } else if appModel.roles.isOwner {
+            Button {
+              appModel.endLive()
+            } label: {
+              Label("End", systemImage: "stop.circle.fill")
+            }
+            .buttonStyle(.bordered)
+          } else if appModel.roles.isTrusted && !appModel.roles.isActiveDj {
+            Button {
+              appModel.takeDecks()
+            } label: {
+              Label("Take the decks", systemImage: "music.mic.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
           }
         }
 
@@ -514,10 +520,10 @@ struct MainWindowView: View {
           FlowLayout(spacing: 8) {
             ForEach(appModel.listeners, id: \.self) { listener in
               Text(listener)
-                .font(.caption.weight(listener == appModel.djName ? .semibold : .regular))
+                .font(.caption.weight(listener == appModel.currentChannel?.activeDjName ? .semibold : .regular))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(listener == appModel.djName ? Color.orange.opacity(0.22) : Color.secondary.opacity(0.12))
+                .background(listener == appModel.currentChannel?.activeDjName ? Color.orange.opacity(0.22) : Color.secondary.opacity(0.12))
                 .clipShape(Capsule())
             }
           }
