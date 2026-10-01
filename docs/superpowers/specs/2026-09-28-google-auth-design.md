@@ -4,7 +4,7 @@
 
 Replace the shared basic-auth password with "Sign in with Google", open to any Google account. Listening stays public; DJing and queueing require sign-in. Vibez must not depend on one company's domain.
 
-This is part 1 of 3. Part 2 is person-based channels (`2026-09-28-channels-design.md`). Part 3 (later) is persistent channels with co-DJ grants.
+This is part 1 of 3. Part 2 is person-based channels (`2026-09-30-channels-design.md`). Part 3 (later) is persistent channels with co-DJ grants.
 
 ## Access Rules
 

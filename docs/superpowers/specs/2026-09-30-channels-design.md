@@ -134,7 +134,7 @@ The popover becomes the whole app.
 
 ## Rollout
 
-Ships after part 1, as its own push to `main`. The Mac release goes out in the same push. Old Mac apps are rejected with the update message (protocol check above).
+Ships together with part 1 (Google sign-in) as one push to `main` (merge `feat/channels`, which contains part 1), so no Keychain-based Mac build is ever released. The Mac release goes out in the same push. Old Mac apps are rejected with the update message; open web tabs need a reload.
 
 ## Testing
 
