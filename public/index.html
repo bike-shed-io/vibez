@@ -37,8 +37,36 @@
     </div>
   </div>
 
+  <!-- Directory screen -->
+  <section id="directoryScreen" class="container hidden">
+    <div class="directory-head">
+      <h2>Live now</h2>
+      <button id="goLiveOpenBtn" class="btn-primary btn-small" type="button" disabled>Go live</button>
+      <span id="goLiveSignInHint" class="hint hidden">Sign in to go live</span>
+    </div>
+    <form id="goLiveForm" class="go-live hidden">
+      <input id="djNameInput" maxlength="30" placeholder="DJ name" required>
+      <input id="roomNameInput" maxlength="40" placeholder="Room name (optional)">
+      <button class="btn-primary" type="submit">Start</button>
+      <button id="goLiveCancelBtn" class="btn-secondary" type="button">Cancel</button>
+    </form>
+    <p id="directoryEmpty" class="hint hidden">Nobody's live — go live?</p>
+    <div id="channelGrid" class="channel-grid"></div>
+  </section>
+
   <!-- Main radio screen -->
   <div class="container hidden" id="radioScreen">
+    <div class="channel-head">
+      <a id="backToChannels" href="/" class="back-link">← Channels</a>
+      <div class="channel-title">
+        <strong id="channelTitle"></strong>
+        <span id="channelDj" class="hint"></span>
+      </div>
+      <button id="takeDecksBtn" class="btn-secondary btn-small hidden" type="button">Take the decks</button>
+      <button id="renameBtn" class="btn-secondary btn-small hidden" type="button">Rename</button>
+      <button id="endLiveBtn" class="btn-danger btn-small hidden" type="button">End</button>
+    </div>
+    <p id="channelNotice" class="notice hidden"></p>
 
     <!-- Now Playing -->
     <div class="now-playing">
@@ -127,12 +155,6 @@
       </div>
     </div>
 
-    <!-- DJ section -->
-    <div class="dj-section">
-      <button class="btn-secondary" id="djToggle" disabled>Become DJ</button>
-      <p id="djSignInHint" class="hint">Sign in to DJ or add tracks.</p>
-    </div>
-
     <!-- DJ Controls (only visible when DJ) -->
     <div class="dj-controls hidden" id="djControls">
       <div class="url-row">
@@ -168,6 +190,11 @@
     <div class="listeners">
       <div class="label">Listeners (<span id="listenerCount">0</span>)</div>
       <div class="listener-list" id="listenerList"></div>
+      <div id="trustPanel" class="trust-panel hidden">
+        <h4>Trusted DJs</h4>
+        <ul id="trustList"></ul>
+        <form id="trustForm"><input id="trustEmailInput" type="email" placeholder="email@example.com"><button class="btn-secondary btn-small">Trust</button></form>
+      </div>
     </div>
   </div>
 

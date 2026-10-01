@@ -1,7 +1,12 @@
 (() => {
   // --- State ---
   let ws = null;
-  let isDj = false;
+  let roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+  let currentChannel = null;      // ChannelInfo or null
+  let directoryEntries = [];
+  let isAdmin = false;
+  let pendingChannelId = channelIdFromPath();
+  let protocolRejected = false;
   let currentTrackUrl = null;
   let refreshPosition = 0;
   let isSeeking = false;
@@ -11,11 +16,45 @@
   let queueItems = [];
   let currentUser = null;
   let errorToastTimer = null;
+  let noticeTimer = null;
+
+  function channelIdFromPath() {
+    const match = location.pathname.match(/^\/c\/([\w-]+)/);
+    return match ? match[1] : null;
+  }
+
+  function roomLabel(info) {
+    return info.roomName || `${info.ownerName}'s vibes`;
+  }
+
+  function loadTrusted() {
+    try { return JSON.parse(localStorage.getItem("vibez:trusted") || "[]"); } catch { return []; }
+  }
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
   const joinScreen = $("joinScreen");
   const radioScreen = $("radioScreen");
+  const directoryScreen = $("directoryScreen");
+  const goLiveOpenBtn = $("goLiveOpenBtn");
+  const goLiveSignInHint = $("goLiveSignInHint");
+  const goLiveForm = $("goLiveForm");
+  const djNameInput = $("djNameInput");
+  const roomNameInput = $("roomNameInput");
+  const goLiveCancelBtn = $("goLiveCancelBtn");
+  const directoryEmpty = $("directoryEmpty");
+  const channelGrid = $("channelGrid");
+  const channelTitle = $("channelTitle");
+  const channelDj = $("channelDj");
+  const takeDecksBtn = $("takeDecksBtn");
+  const renameBtn = $("renameBtn");
+  const endLiveBtn = $("endLiveBtn");
+  const channelNotice = $("channelNotice");
+  const backToChannels = $("backToChannels");
+  const trustPanel = $("trustPanel");
+  const trustList = $("trustList");
+  const trustForm = $("trustForm");
+  const trustEmailInput = $("trustEmailInput");
   const nameInput = $("nameInput");
   const joinBtn = $("joinBtn");
   const statusDot = $("statusDot");
@@ -25,7 +64,6 @@
   const trackTitle = $("trackTitle");
   const trackArtwork = $("trackArtwork");
   const djName = $("djName");
-  const djToggle = $("djToggle");
   const djControls = $("djControls");
   const trackUrlInput = $("trackUrlInput");
   const playBtn = $("playBtn");
@@ -69,7 +107,6 @@
   const signOutBtn = $("signOutBtn");
   const authError = $("authError");
   const errorToast = $("errorToast");
-  const djSignInHint = $("djSignInHint");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -108,7 +145,6 @@
     if (!name) return nameInput.focus();
     localStorage.setItem("vibez:name", name);
     joinScreen.classList.add("hidden");
-    radioScreen.classList.remove("hidden");
     connect(name);
   }
 
@@ -125,13 +161,13 @@
     ws.addEventListener("open", () => {
       statusDot.classList.add("connected");
       statusText.textContent = "Connected";
-      ws.send(JSON.stringify({ type: "join", name }));
+      ws.send(JSON.stringify({ type: "hello", protocol: 2, name }));
     });
 
     ws.addEventListener("close", () => {
       statusDot.classList.remove("connected");
       statusText.textContent = "Disconnected — reconnecting...";
-      setTimeout(() => connect(name), 2000);
+      if (!protocolRejected) setTimeout(() => connect(name), 2000);
     });
 
     ws.addEventListener("message", (evt) => {
@@ -143,27 +179,53 @@
   // --- Message handling ---
   function handleMessage(msg) {
     switch (msg.type) {
-      case "sync":
-        updateDj(msg.djName);
-        updateListeners(msg.listeners, msg.listeners?.length || 0);
-        if (msg.trackUrl) {
-          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork, msg.streamUrl);
-          if (msg.isPlaying) {
-            playAt(msg.position, msg.positionTimestamp);
-          }
+      case "welcome":
+        isAdmin = msg.isAdmin;
+        if (pendingChannelId) {
+          ws.send(JSON.stringify({ type: "channel:join", channelId: pendingChannelId }));
+          pendingChannelId = null;
+        } else if (currentChannel) {
+          ws.send(JSON.stringify({ type: "channel:join", channelId: currentChannel.id })); // rejoin after reconnect
+        } else {
+          showDirectory();
         }
-        setVibezLevelFromRoom(msg.vibezBoost ?? 0);
-        renderQueue(msg.queue || []);
+        break;
+
+      case "channels":
+        directoryEntries = msg.channels;
+        renderDirectory();
+        break;
+
+      case "channel:state":
+        applyChannel(msg.channel, msg.roles);
+        updateListeners(msg.listeners, msg.listeners.length);
+        if (msg.trackUrl && msg.streamUrl) {
+          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork, msg.streamUrl);
+          if (msg.isPlaying) playAt(msg.position, msg.positionTimestamp);
+        } else {
+          clearPlayer();
+        }
+        setVibezLevelFromRoom(msg.vibezBoost);
+        renderQueue(msg.queue);
+        showChannel();
+        break;
+
+      case "channel:update":
+        applyChannel(msg.channel, msg.roles);
+        if (msg.notice) showNotice(msg.notice);
+        break;
+
+      case "channel:ended":
+        currentChannel = null;
+        roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+        stopHeartbeat();
+        clearPlayer();
+        showDirectory(msg.reason === "ended" ? "The DJ ended the channel." : "That channel ended.");
         break;
 
       case "track":
         if (!msg.url && !msg.streamUrl) {
-          trackInfo.classList.add("hidden");
-          noTrack.classList.remove("hidden");
-          noTrack.textContent = "No track playing — queue is empty";
-          currentTrackUrl = null;
-          audio.pause();
-          audio.removeAttribute("src");
+          clearPlayer();
         } else {
           showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl);
         }
@@ -185,13 +247,9 @@
         audio.currentTime = Math.max(0, (msg.position + (Date.now() - msg.timestamp)) / 1000);
         break;
 
-      case "dj:changed":
-        updateDj(msg.djName);
-        refreshListenerChips();
-        break;
-
       case "listeners":
         updateListeners(msg.names, msg.count);
+        renderTrustPanel(msg.people);
         break;
 
       case "vibez":
@@ -210,14 +268,175 @@
 
       case "error":
         console.warn("[vibez]", msg.message);
-        showError(msg.message);
-        if (msg.message === "Sign in to DJ" && isDj) {
-          // The server refused the claim; undo the optimistic DJ state
-          djToggle.click();
+        if (msg.code === "protocol") {
+          protocolRejected = true;
+          showError("This page is out of date — reloading…");
+          setTimeout(() => location.reload(), 1500);
+          break;
         }
+        if (msg.code === "channel-not-found") {
+          showDirectory("That channel ended.");
+          break;
+        }
+        showError(msg.message);
         break;
     }
   }
+
+  // --- Player ---
+  function clearPlayer() {
+    trackInfo.classList.add("hidden");
+    noTrack.classList.remove("hidden");
+    noTrack.textContent = "No track playing — queue is empty";
+    currentTrackUrl = null;
+    audio.pause();
+    audio.removeAttribute("src");
+  }
+
+  // --- Channel / directory views ---
+  function applyChannel(info, nextRoles) {
+    const wasDj = roles.isActiveDj;
+    currentChannel = info;
+    roles = nextRoles;
+    if (roles.isOwner) localStorage.setItem("vibez:trusted", JSON.stringify(roles.trustedEmails));
+    channelTitle.textContent = roomLabel(info);
+    channelDj.textContent = info.djAway ? `🎧 ${info.activeDjName} (away)` : `🎧 ${info.activeDjName}`;
+    updateDj(info.activeDjName);
+    djControls.classList.toggle("hidden", !roles.isActiveDj);
+    queueDjControls.classList.toggle("hidden", !roles.isActiveDj);
+    takeDecksBtn.classList.toggle("hidden", roles.isActiveDj || !(roles.isTrusted || roles.isOwner));
+    renameBtn.classList.toggle("hidden", !roles.isOwner);
+    endLiveBtn.classList.toggle("hidden", !roles.isOwner);
+    trustPanel.classList.toggle("hidden", !roles.isOwner);
+    if (roles.isActiveDj && !wasDj) startHeartbeat();
+    if (!roles.isActiveDj && wasDj) stopHeartbeat();
+    renderQueue(queueItems);
+  }
+
+  function showDirectory(message) {
+    radioScreen.classList.add("hidden");
+    joinScreen.classList.add("hidden");
+    directoryScreen.classList.remove("hidden");
+    if (location.pathname !== "/") history.pushState(null, "", "/");
+    if (message) showNotice(message);
+    renderDirectory();
+  }
+
+  function showChannel() {
+    directoryScreen.classList.add("hidden");
+    joinScreen.classList.add("hidden");
+    radioScreen.classList.remove("hidden");
+    const path = `/c/${currentChannel.id}`;
+    if (location.pathname !== path) history.pushState(null, "", path);
+  }
+
+  function renderDirectory() {
+    channelGrid.replaceChildren(
+      ...directoryEntries.map((entry) => {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "channel-card";
+        const art = document.createElement("div");
+        art.className = "channel-art";
+        if (entry.trackArtwork) art.style.backgroundImage = `url("${entry.trackArtwork}")`;
+        const title = document.createElement("strong");
+        title.textContent = roomLabel(entry);
+        const meta = document.createElement("span");
+        meta.className = "hint";
+        const dj = entry.activeDjName !== entry.ownerName ? ` · 🎧 ${entry.activeDjName}` : "";
+        meta.textContent = `${entry.ownerName}${dj} · ${entry.listenerCount} listening${entry.djAway ? " · DJ away" : ""}`;
+        const track = document.createElement("span");
+        track.className = "channel-track";
+        track.textContent = entry.trackTitle || "Nothing playing";
+        card.append(art, title, track, meta);
+        card.addEventListener("click", () => ws.send(JSON.stringify({ type: "channel:join", channelId: entry.id })));
+        if (isAdmin) {
+          const end = document.createElement("span");
+          end.className = "admin-end";
+          end.textContent = "End";
+          end.addEventListener("click", (event) => {
+            event.stopPropagation();
+            ws.send(JSON.stringify({ type: "admin:end", channelId: entry.id }));
+          });
+          card.append(end);
+        }
+        return card;
+      }),
+    );
+    directoryEmpty.classList.toggle("hidden", directoryEntries.length > 0);
+  }
+
+  function renderTrustPanel(people = []) {
+    if (!roles.isOwner) return;
+    const trusted = new Set(roles.trustedEmails);
+    const rows = [...new Set([...roles.trustedEmails, ...people.map((p) => p.email)])].map((email) => {
+      const person = people.find((p) => p.email === email);
+      const li = document.createElement("li");
+      li.textContent = person ? `${person.name} (${email})` : email;
+      const button = document.createElement("button");
+      button.className = "btn-small btn-secondary";
+      button.textContent = trusted.has(email) ? "Remove" : "Trust as DJ";
+      button.addEventListener("click", () =>
+        ws.send(JSON.stringify({ type: trusted.has(email) ? "live:untrust" : "live:trust", email })),
+      );
+      li.append(" ", button);
+      return li;
+    });
+    trustList.replaceChildren(...rows);
+  }
+
+  backToChannels.addEventListener("click", (event) => {
+    event.preventDefault();
+    ws.send(JSON.stringify({ type: "channel:leave" }));
+    currentChannel = null;
+    roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+    stopHeartbeat();
+    clearPlayer();
+    showDirectory();
+  });
+
+  goLiveOpenBtn.addEventListener("click", () => {
+    if (!currentUser) return showError("Sign in to DJ");
+    djNameInput.value = localStorage.getItem("vibez:name") || currentUser.givenName;
+    roomNameInput.value = localStorage.getItem("vibez:room") || "";
+    goLiveForm.classList.remove("hidden");
+  });
+
+  goLiveCancelBtn.addEventListener("click", () => goLiveForm.classList.add("hidden"));
+
+  goLiveForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    localStorage.setItem("vibez:name", djNameInput.value.trim());
+    localStorage.setItem("vibez:room", roomNameInput.value.trim());
+    ws.send(JSON.stringify({
+      type: "live:start",
+      djName: djNameInput.value.trim(),
+      roomName: roomNameInput.value.trim(),
+      trustedEmails: loadTrusted(),
+    }));
+    goLiveForm.classList.add("hidden");
+  });
+
+  takeDecksBtn.addEventListener("click", () => ws.send(JSON.stringify({ type: "dj:take" })));
+  endLiveBtn.addEventListener("click", () => ws.send(JSON.stringify({ type: "live:end" })));
+
+  renameBtn.addEventListener("click", () => {
+    const next = window.prompt("Room name", currentChannel?.roomName || "");
+    if (next !== null) ws.send(JSON.stringify({ type: "live:rename", roomName: next }));
+  });
+
+  trustForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const email = trustEmailInput.value.trim();
+    if (email) ws.send(JSON.stringify({ type: "live:trust", email }));
+    trustEmailInput.value = "";
+  });
+
+  window.addEventListener("popstate", () => {
+    const id = channelIdFromPath();
+    if (id && id !== currentChannel?.id) ws.send(JSON.stringify({ type: "channel:join", channelId: id }));
+    if (!id && currentChannel) backToChannels.click();
+  });
 
   // --- Track display ---
   function showTrack(url, title, artwork, streamUrl) {
@@ -317,7 +536,7 @@
   function startHeartbeat() {
     stopHeartbeat();
     heartbeatInterval = setInterval(() => {
-      if (!isDj || !ws) return;
+      if (!roles.isActiveDj || !ws) return;
       ws.send(JSON.stringify({ type: "dj:position", position: audio.currentTime * 1000 }));
     }, 5000);
   }
@@ -393,34 +612,12 @@
     isSeeking = false;
     const pos = seekBar.value * audio.duration;
     audio.currentTime = pos;
-    if (isDj && ws) {
+    if (roles.isActiveDj && ws) {
       ws.send(JSON.stringify({ type: "dj:seek", position: pos * 1000 }));
     }
   });
 
   // --- DJ controls ---
-  djToggle.addEventListener("click", () => {
-    if (!isDj) {
-      ws.send(JSON.stringify({ type: "dj:claim", djName: localStorage.getItem("vibez:name") || nameInput.value.trim() }));
-      isDj = true;
-      djToggle.textContent = "Stop DJing";
-      djToggle.className = "btn-danger";
-      djControls.classList.remove("hidden");
-      queueDjControls.classList.remove("hidden");
-      startHeartbeat();
-      renderQueue(queueItems);
-    } else {
-      ws.send(JSON.stringify({ type: "dj:release" }));
-      isDj = false;
-      djToggle.textContent = "Become DJ";
-      djToggle.className = "btn-secondary";
-      djControls.classList.add("hidden");
-      queueDjControls.classList.add("hidden");
-      stopHeartbeat();
-      renderQueue(queueItems);
-    }
-  });
-
   playBtn.addEventListener("click", () => {
     const url = trackUrlInput.value.trim();
     if (!url) return trackUrlInput.focus();
@@ -591,7 +788,7 @@
 
   // --- Track ended → auto-advance queue ---
   audio.addEventListener("ended", () => {
-    if (!ws || !currentTrackUrl) return;
+    if (!ws || !currentTrackUrl || !roles.isActiveDj) return;
     ws.send(JSON.stringify({ type: "track:ended", trackUrl: currentTrackUrl }));
   });
 
@@ -637,7 +834,7 @@
       el.appendChild(pos);
       el.appendChild(info);
 
-      if (isDj) {
+      if (roles.isActiveDj) {
         const actions = document.createElement("div");
         actions.className = "queue-item-actions";
 
@@ -692,15 +889,15 @@
   });
 
   skipBtn.addEventListener("click", () => {
-    if (ws && isDj) ws.send(JSON.stringify({ type: "queue:skip" }));
+    if (ws && roles.isActiveDj) ws.send(JSON.stringify({ type: "queue:skip" }));
   });
 
   shuffleBtn.addEventListener("click", () => {
-    if (ws && isDj) ws.send(JSON.stringify({ type: "queue:shuffle" }));
+    if (ws && roles.isActiveDj) ws.send(JSON.stringify({ type: "queue:shuffle" }));
   });
 
   clearQueueBtn.addEventListener("click", () => {
-    if (ws && isDj && queueItems.length > 0) {
+    if (ws && roles.isActiveDj && queueItems.length > 0) {
       ws.send(JSON.stringify({ type: "queue:clear" }));
     }
   });
@@ -713,11 +910,18 @@
     errorToastTimer = setTimeout(() => errorToast.classList.add("hidden"), 4000);
   }
 
+  function showNotice(message) {
+    channelNotice.textContent = message;
+    channelNotice.classList.remove("hidden");
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => channelNotice.classList.add("hidden"), 4000);
+  }
+
   function renderAuth() {
     signInLink.classList.toggle("hidden", !!currentUser);
     userChip.classList.toggle("hidden", !currentUser);
-    djSignInHint.classList.toggle("hidden", !!currentUser);
-    djToggle.disabled = !currentUser;
+    goLiveOpenBtn.disabled = !currentUser;
+    goLiveSignInHint.classList.toggle("hidden", !!currentUser);
     queueAddBtn.disabled = !currentUser;
     queueUrlInput.disabled = !currentUser;
     if (!currentUser) return;

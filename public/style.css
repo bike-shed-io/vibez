@@ -585,12 +585,6 @@ button:active {
   color: var(--text);
 }
 
-/* DJ toggle */
-.dj-section {
-  display: flex;
-  justify-content: center;
-}
-
 /* Queue */
 .queue-section {
   background: var(--surface);
@@ -803,3 +797,16 @@ button:active {
 .notice-error { background: var(--warm-soft); color: var(--danger); }
 .hint { color: var(--text-dim); font-size: 0.8rem; margin-top: 0.25rem; }
 button:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.directory-head, .channel-head { display: flex; align-items: center; gap: 0.75rem; justify-content: space-between; flex-wrap: wrap; }
+.channel-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.back-link { color: var(--text-dim); text-decoration: none; }
+.channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; }
+.channel-card { position: relative; display: flex; flex-direction: column; gap: 0.35rem; padding: 0.75rem; text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; color: var(--text); cursor: pointer; }
+.channel-card:hover { background: var(--surface-hover); }
+.channel-art { aspect-ratio: 1; border-radius: 8px; background: var(--border) center / cover no-repeat; }
+.channel-track { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-end { position: absolute; top: 0.5rem; right: 0.5rem; font-size: 0.75rem; color: var(--danger); background: var(--surface); padding: 0 0.4rem; border-radius: 6px; }
+.go-live { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.trust-panel ul { list-style: none; padding: 0; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.notice:not(.notice-error) { background: var(--cool-soft); color: var(--text); }
