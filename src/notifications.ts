@@ -138,10 +138,9 @@ export function createNotificationService(options: NotificationServiceOptions = 
       const key = notificationKey(ownerEmail);
       if (wasRecentlySent(key)) return;
 
-      const who = escapeSlack(trimName(ownerName));
-      const text = roomName
-        ? `:headphones: ${who} went live: *${escapeSlack(roomName)}*`
-        : `:headphones: ${who} went live on Vibez`;
+      const trimmedOwnerName = trimName(ownerName);
+      const who = escapeSlack(trimmedOwnerName);
+      const text = `:headphones: ${who} went live: *${escapeSlack(roomName ?? `${trimmedOwnerName}'s vibes`)}*`;
       if (await send(slackMessage(text, radioUrl, channelId))) {
         markSent(key);
       }

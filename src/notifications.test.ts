@@ -30,7 +30,7 @@ describe("notification service", () => {
     await service.notifyWentLive({ ownerEmail: "pat@example.com", ownerName: "Patrick", roomName: null, channelId: null });
 
     expect(sent).toHaveLength(1);
-    expect(sent[0].text).toBe(":headphones: Patrick went live on Vibez");
+    expect(sent[0].text).toBe(":headphones: Patrick went live: *Patrick's vibes*");
   });
 
   test("dedupes repeated DJ start notifications within the dedupe window", async () => {
@@ -54,8 +54,8 @@ describe("notification service", () => {
     await service.notifyWentLive({ ownerEmail: "pat@example.com", ownerName: "Patrick", roomName: null, channelId: null });
 
     expect(sent.map((payload) => payload.text)).toEqual([
-      ":headphones: Patrick went live on Vibez",
-      ":headphones: Patrick went live on Vibez",
+      ":headphones: Patrick went live: *Patrick's vibes*",
+      ":headphones: Patrick went live: *Patrick's vibes*",
     ]);
   });
 
