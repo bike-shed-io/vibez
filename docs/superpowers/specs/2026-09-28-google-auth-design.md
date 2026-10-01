@@ -51,7 +51,7 @@ Anonymous listeners still send a display name on `join`.
 ## Mac App
 
 - Setup drops the password field. "Sign in with Google" uses `ASWebAuthenticationSession` with callback scheme `vibez`.
-- The token is stored in Keychain. Any stored basic-auth password is deleted on first launch after upgrade.
+- The token is stored in `~/Library/Application Support/Vibez/session-token` (directory 0700, file 0600), not Keychain: releases are ad-hoc signed, so every `brew upgrade` changes the signature and Keychain would prompt for access each time. Any stored basic-auth password is deleted on first launch after upgrade.
 - The token is sent as `Authorization: Bearer` on the WebSocket request.
 - Listening works without signing in.
 

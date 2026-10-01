@@ -1,7 +1,6 @@
 import AppKit
 import AuthenticationServices
 import Foundation
-import Security
 
 struct VibezUser: Decodable, Equatable {
   let email: String
@@ -11,42 +10,40 @@ struct VibezUser: Decodable, Equatable {
   let isAdmin: Bool
 }
 
+// The token lives in a 0600 file, not Keychain: ad-hoc-signed releases would get a
+// Keychain prompt after every `brew upgrade` (each build has a new signature).
 enum SessionTokenStore {
-  private static let service = "io.bike-shed.vibez.mac"
-  private static let account = "session"
-
-  private static var baseQuery: [String: Any] {
-    [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: account,
-    ]
+  private static var fileURL: URL? {
+    try? FileManager.default
+      .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      .appending(path: "Vibez/session-token")
   }
 
   static func load() -> String? {
-    var query = baseQuery
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
-    var item: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-          let data = item as? Data else { return nil }
-    return String(data: data, encoding: .utf8)
+    guard let fileURL, let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
+    let token = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+    return token.isEmpty ? nil : token
   }
 
   @discardableResult
   static func save(_ token: String) -> Bool {
-    let data = Data(token.utf8)
-    let updateStatus = SecItemUpdate(baseQuery as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-    if updateStatus == errSecItemNotFound {
-      var query = baseQuery
-      query[kSecValueData as String] = data
-      return SecItemAdd(query as CFDictionary, nil) == errSecSuccess
+    guard let fileURL else { return false }
+    let fileManager = FileManager.default
+    let directory = fileURL.deletingLastPathComponent()
+    do {
+      try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+      try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+      try Data(token.utf8).write(to: fileURL, options: .atomic)
+      try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+      return true
+    } catch {
+      return false
     }
-    return updateStatus == errSecSuccess
   }
 
   static func clear() {
-    SecItemDelete(baseQuery as CFDictionary)
+    guard let fileURL else { return }
+    try? FileManager.default.removeItem(at: fileURL)
   }
 }
 

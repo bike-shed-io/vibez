@@ -1,7 +1,7 @@
 // Mint a session token for local testing without Google:
 //   SESSION_SECRET=dev bun scripts/dev-session.ts you@example.com "Your Name"
 // Web: set cookie vibez_session=<token> on localhost. Mac:
-//   security add-generic-password -U -s io.bike-shed.vibez.mac -a session -w <token>
+//   mkdir -p ~/Library/Application\ Support/Vibez && printf %s <token> > ~/Library/Application\ Support/Vibez/session-token && chmod 600 ~/Library/Application\ Support/Vibez/session-token
 import { createSessionToken } from "../src/auth";
 
 const [email, name = email?.split("@")[0] ?? ""] = process.argv.slice(2);
