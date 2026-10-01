@@ -31,4 +31,13 @@ describe("Slack commands", () => {
   test("says when nobody is live", () => {
     expect(channelListMessage([], "https://x").text).toBe("Nobody's live right now. Open Vibez to go live.");
   });
+
+  test("caps the list at 25 channels and notes how many more are live", () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ ...entry, id: `c${i}` }));
+    const message = channelListMessage(many, "https://x");
+    expect(message.blocks).toHaveLength(25 * 2 + 1);
+    const last = message.blocks![message.blocks!.length - 1] as any;
+    expect(last).toEqual({ type: "context", elements: [{ type: "mrkdwn", text: "…and 5 more live on Vibez" }] });
+    expect(message.text).toBe("30 live on Vibez");
+  });
 });

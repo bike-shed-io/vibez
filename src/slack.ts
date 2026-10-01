@@ -14,11 +14,15 @@ Playing and queueing from Slack is on hold while Vibez moves to channels: ${ON_H
 
 type SlackResponse = { response_type: "ephemeral"; text: string; blocks?: Array<Record<string, unknown>> };
 
+// Each channel renders as 2 blocks; Slack caps messages at 50 blocks.
+const MAX_LISTED_CHANNELS = 25;
+
 export function channelListMessage(entries: DirectoryEntry[], radioUrl: string): SlackResponse {
   if (entries.length === 0) {
     return { response_type: "ephemeral", text: "Nobody's live right now. Open Vibez to go live." };
   }
-  const blocks = entries.flatMap((entry) => {
+  const shown = entries.slice(0, MAX_LISTED_CHANNELS);
+  const blocks: Array<Record<string, unknown>> = shown.flatMap((entry) => {
     const room = escapeSlack(entry.roomName ?? `${entry.ownerName}'s vibes`);
     const dj = entry.activeDjName !== entry.ownerName ? ` (🎧 ${escapeSlack(entry.activeDjName)})` : "";
     const track = entry.trackTitle ? `:musical_note: ${escapeSlack(entry.trackTitle)}` : "_Nothing playing_";
@@ -40,6 +44,10 @@ export function channelListMessage(entries: DirectoryEntry[], radioUrl: string):
       },
     ];
   });
+  const remaining = entries.length - shown.length;
+  if (remaining > 0) {
+    blocks.push({ type: "context", elements: [{ type: "mrkdwn", text: `…and ${remaining} more live on Vibez` }] });
+  }
   return { response_type: "ephemeral", text: `${entries.length} live on Vibez`, blocks };
 }
 
