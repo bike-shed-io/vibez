@@ -795,3 +795,11 @@ button:active {
     flex-direction: column;
   }
 }
+
+.auth-area { display: flex; align-items: center; gap: 0.5rem; }
+.user-chip { display: flex; align-items: center; gap: 0.5rem; color: var(--text-dim); font-size: 0.85rem; }
+.user-avatar { width: 24px; height: 24px; border-radius: 50%; }
+.notice { margin: 0.5rem 0; padding: 0.5rem 0.75rem; border-radius: 8px; font-size: 0.85rem; }
+.notice-error { background: var(--warm-soft); color: var(--danger); }
+.hint { color: var(--text-dim); font-size: 0.8rem; margin-top: 0.25rem; }
+button:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }

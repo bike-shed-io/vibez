@@ -9,6 +9,8 @@
   let vibezLevel = 0;
   let vibezRange = 0.2;
   let queueItems = [];
+  let currentUser = null;
+  let errorToastTimer = null;
 
   // --- DOM ---
   const $ = (id) => document.getElementById(id);
@@ -60,6 +62,14 @@
   const skipBtn = $("skipBtn");
   const shuffleBtn = $("shuffleBtn");
   const clearQueueBtn = $("clearQueueBtn");
+  const signInLink = $("signInLink");
+  const userChip = $("userChip");
+  const userAvatar = $("userAvatar");
+  const userName = $("userName");
+  const signOutBtn = $("signOutBtn");
+  const authError = $("authError");
+  const errorToast = $("errorToast");
+  const djSignInHint = $("djSignInHint");
 
   // --- Restore name from localStorage ---
   const savedName = localStorage.getItem("vibez:name");
@@ -200,6 +210,11 @@
 
       case "error":
         console.warn("[vibez]", msg.message);
+        showError(msg.message);
+        if (msg.message === "Sign in to DJ" && isDj) {
+          // The server refused the claim; undo the optimistic DJ state
+          djToggle.click();
+        }
         break;
     }
   }
@@ -386,7 +401,7 @@
   // --- DJ controls ---
   djToggle.addEventListener("click", () => {
     if (!isDj) {
-      ws.send(JSON.stringify({ type: "dj:claim" }));
+      ws.send(JSON.stringify({ type: "dj:claim", djName: localStorage.getItem("vibez:name") || nameInput.value.trim() }));
       isDj = true;
       djToggle.textContent = "Stop DJing";
       djToggle.className = "btn-danger";
@@ -690,7 +705,50 @@
     }
   });
 
+  // --- Auth ---
+  function showError(message) {
+    errorToast.textContent = message;
+    errorToast.classList.remove("hidden");
+    clearTimeout(errorToastTimer);
+    errorToastTimer = setTimeout(() => errorToast.classList.add("hidden"), 4000);
+  }
+
+  function renderAuth() {
+    signInLink.classList.toggle("hidden", !!currentUser);
+    userChip.classList.toggle("hidden", !currentUser);
+    djSignInHint.classList.toggle("hidden", !!currentUser);
+    djToggle.disabled = !currentUser;
+    queueAddBtn.disabled = !currentUser;
+    queueUrlInput.disabled = !currentUser;
+    if (!currentUser) return;
+    userName.textContent = currentUser.name;
+    userAvatar.classList.toggle("hidden", !currentUser.picture);
+    if (currentUser.picture) userAvatar.src = currentUser.picture;
+    if (!nameInput.value) nameInput.value = currentUser.givenName;
+  }
+
+  async function loadUser() {
+    try {
+      const res = await fetch("/auth/me", { credentials: "same-origin" });
+      currentUser = res.ok ? await res.json() : null;
+    } catch {
+      currentUser = null;
+    }
+    renderAuth();
+  }
+
+  signOutBtn.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+    location.reload();
+  });
+
+  if (new URLSearchParams(location.search).has("auth_error")) {
+    authError.classList.remove("hidden");
+    history.replaceState(null, "", location.pathname);
+  }
+
   // Auto-join if name already saved
+  loadUser();
   if (savedName) {
     join();
   }

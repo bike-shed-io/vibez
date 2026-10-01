@@ -14,7 +14,18 @@
       <span class="status-dot" id="statusDot"></span>
       <span id="statusText">Connecting...</span>
     </div>
+    <div id="authArea" class="auth-area">
+      <a id="signInLink" class="btn-secondary btn-small hidden" href="/auth/google?client=web">Sign in with Google</a>
+      <div id="userChip" class="user-chip hidden">
+        <img id="userAvatar" class="user-avatar hidden" alt="" referrerpolicy="no-referrer">
+        <span id="userName"></span>
+        <button id="signOutBtn" class="btn-secondary btn-small" type="button">Sign out</button>
+      </div>
+    </div>
   </header>
+
+  <p id="authError" class="notice notice-error hidden">Google sign-in failed. Try again.</p>
+  <p id="errorToast" class="notice notice-error hidden"></p>
 
   <!-- Join screen -->
   <div class="container" id="joinScreen">
@@ -119,6 +130,7 @@
     <!-- DJ section -->
     <div class="dj-section">
       <button class="btn-secondary" id="djToggle">Become DJ</button>
+      <p id="djSignInHint" class="hint hidden">Sign in to DJ or add tracks.</p>
     </div>
 
     <!-- DJ Controls (only visible when DJ) -->
