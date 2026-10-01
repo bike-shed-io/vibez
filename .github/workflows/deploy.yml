@@ -40,6 +40,21 @@ jobs:
           chmod 600 ~/.ssh/deploy_vibez_ed25519
           ssh-keyscan -H 188.245.49.145 >> ~/.ssh/known_hosts
 
+      - name: Verify required secrets are set
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+        run: |
+          missing=()
+          [ -n "$GOOGLE_CLIENT_ID" ] || missing+=("GOOGLE_CLIENT_ID")
+          [ -n "$GOOGLE_CLIENT_SECRET" ] || missing+=("GOOGLE_CLIENT_SECRET")
+          [ -n "$SESSION_SECRET" ] || missing+=("SESSION_SECRET")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing required secrets: ${missing[*]} — set them in Settings → Secrets and variables → Actions before deploying"
+            exit 1
+          fi
+
       - name: Generate prod.env
         run: |
           cat > env/prod.env <<EOF

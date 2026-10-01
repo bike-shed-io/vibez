@@ -8,7 +8,11 @@ All secrets are stored in **1Password** (vault: `infra`, item: `vibez`) and inje
 
 | Secret | 1Password reference | Used by |
 |--------|---------------------|---------|
-| Auth password | `op://infra/vibez/auth-password` | Basic auth for web UI |
+| Google OAuth client ID | `op://infra/vibez/google-client-id` | Google sign-in |
+| Google OAuth client secret | `op://infra/vibez/google-client-secret` | Google sign-in |
+| Session secret | `op://infra/vibez/session-secret` | Signs session tokens for Google sign-in |
+| Admin emails | `op://infra/vibez/admin-emails` | Google sign-in — comma-separated admin allowlist |
+| Banned emails | `op://infra/vibez/banned-emails` | Google sign-in — comma-separated denylist |
 | Slack bot token | `op://infra/vibez/slack-bot-token` | Slack bot (Socket Mode) |
 | Slack app token | `op://infra/vibez/slack-app-token` | Slack bot (Socket Mode) |
 | SoundCloud client ID | `op://infra/vibez/soundcloud-client-id` | SoundCloud streaming |
@@ -29,6 +33,8 @@ All secrets are stored in **1Password** (vault: `infra`, item: `vibez`) and inje
 ## What this app is
 
 A "Team Radio" — a synchronized music listening app for pair programming. A Bun + Hono web server that serves a static frontend and a WebSocket endpoint for real-time sync between listeners. It also runs a Slack bot (Socket Mode) for `/radio` commands. Single process, single port.
+
+The web UI listens publicly (no basic auth) — anyone can tune in and listen. Google sign-in is required to become DJ or add to the queue. Env vars: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `ADMIN_EMAILS`, `BANNED_EMAILS`.
 
 ## Server environment
 

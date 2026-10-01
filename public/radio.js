@@ -721,7 +721,7 @@
     queueAddBtn.disabled = !currentUser;
     queueUrlInput.disabled = !currentUser;
     if (!currentUser) return;
-    userName.textContent = currentUser.name;
+    userName.textContent = localStorage.getItem("vibez:name") || currentUser.givenName;
     userAvatar.classList.toggle("hidden", !currentUser.picture);
     if (currentUser.picture) userAvatar.src = currentUser.picture;
     if (!nameInput.value) nameInput.value = currentUser.givenName;
