@@ -34,7 +34,7 @@ function resetStation() {
   station.queue = [];
 }
 
-const originalNotifyDjStarted = notifications.notifyDjStarted;
+const originalNotifyWentLive = notifications.notifyWentLive;
 
 function testUser(email: string, givenName: string) {
   return {
@@ -61,14 +61,14 @@ describe("websocket auth and Slack notifications", () => {
   beforeEach(() => {
     resetStation();
     notified = [];
-    notifications.notifyDjStarted = async (name) => {
-      notified.push(name);
+    notifications.notifyWentLive = async ({ ownerName }) => {
+      notified.push(ownerName);
     };
   });
 
   afterEach(() => {
     for (const id of ["anon", "pat", "lisa"]) handleClose(id);
-    notifications.notifyDjStarted = originalNotifyDjStarted;
+    notifications.notifyWentLive = originalNotifyWentLive;
     resetStation();
   });
 

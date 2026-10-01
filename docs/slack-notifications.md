@@ -23,6 +23,12 @@ Do not commit the webhook URL to git.
 - Feature: Incoming Webhooks
 - Target channel: configured in Slack when the webhook is created
 
+## Messages
+
+Vibez posts one message when someone goes live (`<name> went live: *<room>*`) with buttons that open that channel in the Mac app (`vibez://channel/<id>`) or on the web (`/c/<id>`). Listener joins are not posted.
+
+`/vibez` lists live channels. `/vibez play` and `/vibez queue` are on hold (issue #8).
+
 ## Local Test
 
 Use the webhook URL from 1Password and test with:

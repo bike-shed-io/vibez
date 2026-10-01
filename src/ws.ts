@@ -139,7 +139,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       const listener = station.listeners.get(id);
       if (listener) listener.name = name;
       claimDj(id, name);
-      void notifications.notifyDjStarted(name);
+      void notifications.notifyWentLive({ ownerEmail: conn.user.email, ownerName: name, roomName: null, channelId: null });
       broadcast({ type: "dj:changed", djName: name });
       broadcastListeners();
       break;

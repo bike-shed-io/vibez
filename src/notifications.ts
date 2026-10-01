@@ -13,7 +13,7 @@ type NotificationServiceOptions = {
 };
 
 type NotificationService = {
-  notifyDjStarted(name: string): Promise<void>;
+  notifyWentLive(input: { ownerEmail: string; ownerName: string; roomName: string | null; channelId: string | null }): Promise<void>;
 };
 
 const DEFAULT_DEDUPE_WINDOW_MS = 10 * 60_000;
@@ -27,7 +27,18 @@ function notificationKey(name: string): string {
   return `dj:${trimName(name).toLowerCase()}`;
 }
 
-function slackMessage(text: string, radioUrl: string): SlackPayload {
+export function escapeSlack(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function listenUrls(radioUrl: string, channelId: string | null) {
+  return channelId
+    ? { app: `vibez://channel/${channelId}`, web: `${radioUrl}/c/${channelId}` }
+    : { app: "vibez://open", web: radioUrl };
+}
+
+function slackMessage(text: string, radioUrl: string, channelId: string | null): SlackPayload {
+  const urls = listenUrls(radioUrl, channelId);
   return {
     text,
     blocks: [
@@ -44,13 +55,13 @@ function slackMessage(text: string, radioUrl: string): SlackPayload {
           {
             type: "button",
             text: { type: "plain_text", text: "Open Vibez App" },
-            url: "vibez://open",
+            url: urls.app,
             action_id: "open_vibez_app",
           },
           {
             type: "button",
             text: { type: "plain_text", text: "Open Web" },
-            url: radioUrl,
+            url: urls.web,
             action_id: "open_vibez_web",
           },
         ],
@@ -123,13 +134,15 @@ export function createNotificationService(options: NotificationServiceOptions = 
   }
 
   return {
-    async notifyDjStarted(name: string) {
-      const displayName = trimName(name);
-      const key = notificationKey(displayName);
+    async notifyWentLive({ ownerEmail, ownerName, roomName, channelId }) {
+      const key = notificationKey(ownerEmail);
       if (wasRecentlySent(key)) return;
 
-      const text = `:headphones: ${displayName} is DJing on Vibez`;
-      if (await send(slackMessage(text, radioUrl))) {
+      const who = escapeSlack(trimName(ownerName));
+      const text = roomName
+        ? `:headphones: ${who} went live: *${escapeSlack(roomName)}*`
+        : `:headphones: ${who} went live on Vibez`;
+      if (await send(slackMessage(text, radioUrl, channelId))) {
         markSent(key);
       }
     },
