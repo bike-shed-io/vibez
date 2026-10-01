@@ -7,7 +7,10 @@ import {
   sessionFromHeaders,
   signToken,
   verifyToken,
+  SESSION_COOKIE,
   SESSION_TTL_MS,
+  STATE_TTL_MS,
+  type SessionUser,
 } from "./auth";
 
 const SECRET = "test-secret";
@@ -21,7 +24,7 @@ function config(env: Record<string, string> = {}) {
 describe("signToken / verifyToken", () => {
   test("round trips a payload", () => {
     const token = signToken({ a: 1, exp: NOW + 1_000 }, SECRET);
-    expect(verifyToken(token, SECRET, NOW)).toEqual({ a: 1, exp: NOW + 1_000 });
+    expect(verifyToken<{ a: number; exp: number }>(token, SECRET, NOW)).toEqual({ a: 1, exp: NOW + 1_000 });
   });
 
   test("rejects a tampered payload", () => {
@@ -58,7 +61,7 @@ describe("parseEmailList", () => {
 describe("createSessionToken", () => {
   test("expires after 30 days", () => {
     const token = createSessionToken(USER, SECRET, NOW);
-    expect(verifyToken(token, SECRET, NOW + SESSION_TTL_MS - 1)?.email).toBe("patrick@example.com");
+    expect(verifyToken<SessionUser>(token, SECRET, NOW + SESSION_TTL_MS - 1)?.email).toBe("patrick@example.com");
     expect(verifyToken(token, SECRET, NOW + SESSION_TTL_MS)).toBeNull();
   });
 });
@@ -87,6 +90,16 @@ describe("sessionFromHeaders", () => {
 
   test("returns null without credentials", () => {
     expect(sessionFromHeaders({}, config(), NOW)).toBeNull();
+  });
+
+  test("rejects a state token presented as a Bearer session token", () => {
+    const stateToken = signToken({ typ: "state", client: "web", nonce: "abc", exp: NOW + STATE_TTL_MS }, SECRET);
+    expect(sessionFromHeaders({ authorization: `Bearer ${stateToken}` }, config(), NOW)).toBeNull();
+  });
+
+  test("rejects a state token presented as a session cookie", () => {
+    const stateToken = signToken({ typ: "state", client: "web", nonce: "abc", exp: NOW + STATE_TTL_MS }, SECRET);
+    expect(sessionFromHeaders({ cookie: `${SESSION_COOKIE}=${stateToken}` }, config(), NOW)).toBeNull();
   });
 });
 
@@ -184,9 +197,18 @@ describe("createAuthRoutes", () => {
   test("missing or expired state is rejected without calling Google", async () => {
     const google = googleReturning(verifiedClaims);
     const app = createAuthRoutes(cfg(), { fetch: google.fetch, now: () => NOW });
-    const expired = signToken({ client: "web", exp: NOW }, SECRET);
+    const expired = signToken({ typ: "state", client: "web", exp: NOW }, SECRET);
     expect((await app.request(`/google/callback?code=abc`)).headers.get("location")).toBe("/?auth_error=1");
     expect((await app.request(`/google/callback?code=abc&state=${expired}`)).headers.get("location")).toBe("/?auth_error=1");
+    expect(google.calls).toHaveLength(0);
+  });
+
+  test("a session token used as state is rejected without calling Google", async () => {
+    const google = googleReturning(verifiedClaims);
+    const app = createAuthRoutes(cfg(), { fetch: google.fetch, now: () => NOW });
+    const sessionToken = createSessionToken(USER, SECRET, NOW);
+    const res = await app.request(`/google/callback?code=abc&state=${encodeURIComponent(sessionToken)}`);
+    expect(res.headers.get("location")).toBe("/?auth_error=1");
     expect(google.calls).toHaveLength(0);
   });
 
@@ -203,6 +225,13 @@ describe("createAuthRoutes", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ email: "admin@example.com", name: "Patrick O", givenName: "Patrick", picture: null, isAdmin: true });
     expect((await app.request("/me")).status).toBe(401);
+  });
+
+  test("/me rejects a state token used as a Bearer session token", async () => {
+    const app = createAuthRoutes(cfg(), { now: () => NOW });
+    const state = await startState(app, "web");
+    const res = await app.request("/me", { headers: { authorization: `Bearer ${state}` } });
+    expect(res.status).toBe(401);
   });
 
   test("/logout clears the cookie", async () => {

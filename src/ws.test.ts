@@ -37,7 +37,14 @@ function resetStation() {
 const originalNotifyDjStarted = notifications.notifyDjStarted;
 
 function testUser(email: string, givenName: string) {
-  return { email, name: `${givenName} Example`, givenName, picture: null, exp: Date.now() + 60_000 };
+  return {
+    typ: "session" as const,
+    email,
+    name: `${givenName} Example`,
+    givenName,
+    picture: null,
+    exp: Date.now() + 60_000,
+  };
 }
 
 async function connect(id: string, name: string, user: ReturnType<typeof testUser> | null = null) {

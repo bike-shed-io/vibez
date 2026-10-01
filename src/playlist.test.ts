@@ -38,7 +38,14 @@ function resetStation() {
 }
 
 function testUser(name: string) {
-  return { email: `${name.toLowerCase()}@example.com`, name, givenName: name, picture: null, exp: Date.now() + 60_000 };
+  return {
+    typ: "session" as const,
+    email: `${name.toLowerCase()}@example.com`,
+    name,
+    givenName: name,
+    picture: null,
+    exp: Date.now() + 60_000,
+  };
 }
 
 async function setupDj(id: string, name: string) {

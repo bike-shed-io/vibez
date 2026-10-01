@@ -3,10 +3,18 @@ import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 
 export type SessionUser = {
+  typ: "session";
   email: string;
   name: string;
   givenName: string;
   picture: string | null;
+  exp: number;
+};
+
+type StateToken = {
+  typ: "state";
+  client: AuthClient;
+  nonce: string;
   exp: number;
 };
 
@@ -58,9 +66,7 @@ export function signToken(payload: object, secret: string): string {
   return `${data}.${hmac(data, secret)}`;
 }
 
-export function verifyToken(token: string, secret: string, now: number): any;
-export function verifyToken<T extends { exp: number }>(token: string, secret: string, now: number): T | null;
-export function verifyToken<T extends { exp: number }>(token: string, secret: string, now: number): T | null {
+export function verifyToken<T extends { exp: number } = { exp: number }>(token: string, secret: string, now: number): T | null {
   const parts = token.split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   const [data, signature] = parts;
@@ -76,8 +82,8 @@ export function verifyToken<T extends { exp: number }>(token: string, secret: st
   }
 }
 
-export function createSessionToken(user: Omit<SessionUser, "exp">, secret: string, now: number): string {
-  return signToken({ ...user, exp: now + SESSION_TTL_MS }, secret);
+export function createSessionToken(user: Omit<SessionUser, "exp" | "typ">, secret: string, now: number): string {
+  return signToken({ ...user, typ: "session", exp: now + SESSION_TTL_MS }, secret);
 }
 
 export function sessionFromHeaders(
@@ -86,11 +92,12 @@ export function sessionFromHeaders(
   now: number,
 ): SessionUser | null {
   const bearer = headers.authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
-  const cookie = headers.cookie?.match(/(?:^|;\s*)vibez_session=([^;]+)/)?.[1];
+  const cookie = headers.cookie?.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`))?.[1];
   const token = bearer ?? cookie;
   if (!token) return null;
   const user = verifyToken<SessionUser>(token, config.sessionSecret, now);
-  if (!user || config.bannedEmails.has(user.email.toLowerCase())) return null;
+  if (!user || user.typ !== "session" || typeof user.email !== "string") return null;
+  if (config.bannedEmails.has(user.email.toLowerCase())) return null;
   return user;
 }
 
@@ -129,7 +136,7 @@ export function createAuthRoutes(config: AuthConfig, deps: { fetch?: FetchLike; 
     const client: AuthClient = c.req.query("client") === "mac" ? "mac" : "web";
     // ponytail: state is signed but not bound to a browser cookie; login-CSRF only lets an attacker sign you into their account
     const state = signToken(
-      { client, nonce: randomBytes(8).toString("hex"), exp: now() + STATE_TTL_MS },
+      { typ: "state", client, nonce: randomBytes(8).toString("hex"), exp: now() + STATE_TTL_MS },
       config.sessionSecret,
     );
     const params = new URLSearchParams({
@@ -144,7 +151,8 @@ export function createAuthRoutes(config: AuthConfig, deps: { fetch?: FetchLike; 
   });
 
   routes.get("/google/callback", async (c) => {
-    const state = verifyToken<{ client: AuthClient; exp: number }>(c.req.query("state") ?? "", config.sessionSecret, now());
+    const rawState = verifyToken<StateToken>(c.req.query("state") ?? "", config.sessionSecret, now());
+    const state = rawState && rawState.typ === "state" ? rawState : null;
     const fail = () => c.redirect(state?.client === "mac" ? "vibez://auth?error=1" : "/?auth_error=1");
     const code = c.req.query("code");
     if (!state || !code) return fail();
