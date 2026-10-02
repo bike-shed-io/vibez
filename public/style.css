@@ -812,3 +812,8 @@ button:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
 .go-live { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .trust-panel ul { list-style: none; padding: 0; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
 .notice:not(.notice-error) { background: var(--cool-soft); color: var(--text); }
+
+.legal { text-align: left; line-height: 1.6; }
+.legal h2 { margin-top: 1rem; font-size: 1.1rem; }
+.legal a, .site-footer a { color: var(--accent); }
+.site-footer { margin: 2rem 0 1rem; font-size: 0.8rem; color: var(--text-dim); text-align: center; }
