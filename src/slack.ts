@@ -14,14 +14,15 @@ Playing and queueing from Slack is on hold while Vibez moves to channels: ${ON_H
 
 type SlackResponse = { response_type: "ephemeral"; text: string; blocks?: Array<Record<string, unknown>> };
 
-// Each channel renders as 2 blocks; Slack caps messages at 50 blocks.
+// Each channel renders as 2 blocks; Slack caps messages at 50 blocks. When truncating,
+// one block goes to the "…and N more" line, so only 24 channels fit.
 const MAX_LISTED_CHANNELS = 25;
 
 export function channelListMessage(entries: DirectoryEntry[], radioUrl: string): SlackResponse {
   if (entries.length === 0) {
     return { response_type: "ephemeral", text: "Nobody's live right now. Open Vibez to go live." };
   }
-  const shown = entries.slice(0, MAX_LISTED_CHANNELS);
+  const shown = entries.slice(0, entries.length > MAX_LISTED_CHANNELS ? MAX_LISTED_CHANNELS - 1 : MAX_LISTED_CHANNELS);
   const blocks: Array<Record<string, unknown>> = shown.flatMap((entry) => {
     const room = escapeSlack(entry.roomName ?? `${entry.ownerName}'s vibes`);
     const dj = entry.activeDjName !== entry.ownerName ? ` (🎧 ${escapeSlack(entry.activeDjName)})` : "";

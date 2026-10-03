@@ -136,7 +136,10 @@ export function startChannel(
     existing.roomName = roomName;
     // Going live again (e.g. from a second device) unions the trusted list rather than
     // replacing it — dropping someone requires an explicit live:untrust.
-    for (const email of trustedEmails) existing.trustedEmails.add(email);
+    for (const email of trustedEmails) {
+      if (existing.trustedEmails.size >= MAX_TRUSTED) break;
+      existing.trustedEmails.add(email);
+    }
     if (existing.activeDjEmail === ownerEmail || !existing.trustedEmails.has(existing.activeDjEmail)) {
       setActiveDj(existing, ownerEmail, ownerName);
     }

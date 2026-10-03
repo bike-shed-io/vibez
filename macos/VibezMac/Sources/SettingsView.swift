@@ -15,7 +15,8 @@ struct SettingsView: View {
       Form {
         Section("Connection") {
           TextField("Server", text: $serverURLString)
-          TextField("Display name", text: $listenerName)
+          // Empty means "use the default" (Google first name, else "Listener").
+          TextField("Display name", text: $listenerName, prompt: Text(appModel.listenerName))
           if let saveError {
             Text(saveError).font(.caption).foregroundStyle(.red)
           }
@@ -127,11 +128,6 @@ struct SettingsView: View {
       saveError = "Enter a valid vibez URL."
       return
     }
-    guard !configuration.listenerName.isEmpty else {
-      saveError = "Choose the name that should appear in the room."
-      return
-    }
-
     isSaving = true
     Task {
       do {

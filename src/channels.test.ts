@@ -81,6 +81,13 @@ describe("startChannel", () => {
     expect(channel.trustedEmails.size).toBe(50);
   });
 
+  test("going live again cannot grow the trusted list past 50", () => {
+    const batch = (start: number) => Array.from({ length: 40 }, (_, i) => `user${start + i}@example.com`);
+    startChannel(PAT, { djName: "DJ", trustedEmails: batch(0) }, NOW);
+    const channel = startChannel(PAT, { djName: "DJ", trustedEmails: batch(100) }, NOW).channel;
+    expect(channel.trustedEmails.size).toBe(50);
+  });
+
   test("emails longer than 254 chars are ignored", () => {
     const long = `${"a".repeat(250)}@example.com`; // > 254 chars
     expect(long.length).toBeGreaterThan(254);
