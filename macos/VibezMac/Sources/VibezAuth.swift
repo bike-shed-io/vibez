@@ -63,7 +63,10 @@ final class GoogleSignIn: NSObject, ASWebAuthenticationPresentationContextProvid
     let startURL = components.url!
 
     return try await withCheckedThrowingContinuation { continuation in
-      let session = ASWebAuthenticationSession(url: startURL, callbackURLScheme: "vibez") { callbackURL, error in
+      // @Sendable: the completion arrives on a background queue. Without it, Swift 6 treats
+      // this closure as main-actor isolated (it's created inside a @MainActor class and the
+      // SDK block type isn't marked Sendable) and traps with SIGTRAP right after sign-in.
+      let session = ASWebAuthenticationSession(url: startURL, callbackURLScheme: "vibez") { @Sendable callbackURL, error in
         let token = callbackURL
           .flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }?
           .first { $0.name == "token" }?
