@@ -20,7 +20,7 @@ Read this first when working on Vibez.
 ## Useful Commands
 
 - Web/backend dev: `bun run src/index.ts`.
-- Production deploy: `make deploy`.
+- Production deploy: push to `main` (or run the Deploy workflow); all secrets live in GitHub Actions. `make deploy` is a local fallback that needs Patrick's 1Password + SSH key.
 - Generate macOS project: `make macos-project`.
 - Build macOS app: `make macos-build`.
 - Run macOS app: `make macos-run`.

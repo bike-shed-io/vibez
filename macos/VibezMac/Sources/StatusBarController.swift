@@ -40,7 +40,7 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
     appModel.$roles
       .sink { [weak self] roles in
-        let symbol = roles.isActiveDj ? "dot.radiowaves.left.and.right.circle.fill" : "dot.radiowaves.left.and.right"
+        let symbol = roles.isActiveDj ? "antenna.radiowaves.left.and.right.circle.fill" : "dot.radiowaves.left.and.right"
         self?.statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "vibez")
       }
       .store(in: &cancellables)
