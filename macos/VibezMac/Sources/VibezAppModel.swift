@@ -127,6 +127,8 @@ final class VibezAppModel: NSObject, ObservableObject {
   private var receiveTask: Task<Void, Never>?
   private var reconnectTask: Task<Void, Never>?
   private var heartbeatTask: Task<Void, Never>?
+  private var livenessTask: Task<Void, Never>?
+  private var lastPong = Date()
   private var timeObserverToken: Any?
   private var refreshPosition = 0.0
   private var currentStreamURLString: String?
@@ -467,6 +469,7 @@ final class VibezAppModel: NSObject, ObservableObject {
       guard let self else { return }
       await self.receiveLoop(for: task)
     }
+    startLivenessCheck(for: task)
 
     send(["type": "hello", "protocol": 2, "name": listenerName])
   }
@@ -481,6 +484,9 @@ final class VibezAppModel: NSObject, ObservableObject {
     reconnectTask?.cancel()
     reconnectTask = nil
 
+    livenessTask?.cancel()
+    livenessTask = nil
+
     webSocketTask?.cancel(with: .goingAway, reason: nil)
     webSocketTask = nil
   }
@@ -493,7 +499,30 @@ final class VibezAppModel: NSObject, ObservableObject {
     reconnectTask = Task { [weak self] in
       try? await Task.sleep(for: .seconds(2))
       guard let self, !Task.isCancelled else { return }
-      self.connect()
+      self.reconnect() // drop the old socket, or its receive loop keeps feeding stale messages
+    }
+  }
+
+  // A socket that died silently (Mac slept, Wi-Fi switched) never errors: receive() just waits
+  // forever and the popover sits on "Connecting…". Ping, and treat a missing pong as dead.
+  private func startLivenessCheck(for task: URLSessionWebSocketTask) {
+    lastPong = Date()
+    livenessTask = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(10))
+        guard let self, !Task.isCancelled, task === self.webSocketTask else { return }
+        if Date().timeIntervalSince(self.lastPong) > 25 {
+          self.connectionState = .disconnected
+          self.reconnect()
+          return
+        }
+        task.sendPing { [weak self] error in
+          guard error == nil else { return }
+          Task { @MainActor in
+            if task === self?.webSocketTask { self?.lastPong = Date() }
+          }
+        }
+      }
     }
   }
 
