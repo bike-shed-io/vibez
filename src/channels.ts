@@ -55,6 +55,7 @@ export type ChannelInfo = {
 
 export type DirectoryEntry = ChannelInfo & {
   trackTitle: string | null;
+  trackUrl: string | null;
   trackArtwork: string | null;
   isPlaying: boolean;
   listenerCount: number;
@@ -272,6 +273,7 @@ export function directoryEntry(ch: Channel): DirectoryEntry {
   return {
     ...channelInfo(ch),
     trackTitle: ch.trackTitle,
+    trackUrl: ch.trackUrl,
     trackArtwork: ch.trackArtwork,
     isPlaying: ch.isPlaying,
     listenerCount: ch.members.size,

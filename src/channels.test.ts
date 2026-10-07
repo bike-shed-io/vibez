@@ -250,7 +250,7 @@ describe("directory", () => {
     expect(entries.map((e) => e.id)).toEqual([busy.id, quiet.id]);
     expect(entries[0]).toEqual({
       id: busy.id, ownerName: "Anna", ownerPicture: "https://x/a.png", roomName: "busy", activeDjName: "Anna",
-      djAway: false, trackTitle: null, trackArtwork: null, isPlaying: false, listenerCount: 2,
+      djAway: false, trackTitle: null, trackUrl: null, trackArtwork: null, isPlaying: false, listenerCount: 2,
     });
   });
 });

@@ -3,6 +3,7 @@ import { serveStatic } from "hono/bun";
 import { createBunWebSocket } from "hono/bun";
 import { handleOpen, handleClose, handleMessage, runSweep } from "./ws";
 import { startSlack } from "./slack";
+import { discord } from "./discord";
 import { createAuthRoutes, loadAuthConfig, sessionFromHeaders } from "./auth";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -53,6 +54,12 @@ startSlack().catch((err) => {
 });
 
 setInterval(() => runSweep(), 15_000);
+
+// Deploys stop the container: close the Discord posts of the rooms that die with this process.
+process.on("SIGTERM", async () => {
+  await discord.sync([]);
+  process.exit(0);
+});
 
 export default {
   port,

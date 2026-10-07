@@ -3,7 +3,7 @@ import { channelListMessage, radioCommandUsage, SLACK_COMMANDS } from "./slack";
 
 const entry = {
   id: "abc123", ownerName: "Pat", ownerPicture: null, roomName: null, activeDjName: "Anna",
-  djAway: false, trackTitle: "Song <b>", trackArtwork: null, isPlaying: true, listenerCount: 3,
+  djAway: false, trackTitle: "Song <b>", trackUrl: null, trackArtwork: null, isPlaying: true, listenerCount: 3,
 };
 
 describe("Slack commands", () => {

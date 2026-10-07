@@ -1,5 +1,6 @@
 import type { WSContext } from "hono/ws";
 import { parseEmailList, type SessionUser } from "./auth";
+import { discord } from "./discord";
 import { notifications } from "./notifications";
 import {
   addMember, addToQueue, canTakeDecks, channelInfo, channels, cleanRoomName, clearPlayback, directory,
@@ -82,7 +83,9 @@ export function flushDirectory() {
     clearTimeout(directoryTimer);
     directoryTimer = null;
   }
-  const data = JSON.stringify({ type: "channels", channels: directory() });
+  const rooms = directory();
+  void discord.sync(rooms);
+  const data = JSON.stringify({ type: "channels", channels: rooms });
   for (const conn of connections.values()) {
     if (conn.greeted) conn.ws.send(data);
   }
