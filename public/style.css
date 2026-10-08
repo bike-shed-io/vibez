@@ -816,4 +816,5 @@ button:disabled, input:disabled { opacity: 0.5; cursor: not-allowed; }
 .legal { text-align: left; line-height: 1.6; }
 .legal h2 { margin-top: 1rem; font-size: 1.1rem; }
 .legal a, .site-footer a { color: var(--accent); }
+.legal pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; overflow-x: auto; }
 .site-footer { margin: 2rem 0 1rem; font-size: 0.8rem; color: var(--text-dim); text-align: center; }

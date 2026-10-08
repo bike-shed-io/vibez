@@ -45,6 +45,9 @@
   const directoryEmpty = $("directoryEmpty");
   const channelGrid = $("channelGrid");
   const channelTitle = $("channelTitle");
+  const openInMac = $("openInMac");
+  // iPads report a Mac user agent; only real Macs have no touch points.
+  const isMac = /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints === 0;
   const channelDj = $("channelDj");
   const takeDecksBtn = $("takeDecksBtn");
   const renameBtn = $("renameBtn");
@@ -310,6 +313,8 @@
     roles = nextRoles;
     if (roles.isOwner) localStorage.setItem("vibez:trusted", JSON.stringify(roles.trustedEmails));
     channelTitle.textContent = roomLabel(info);
+    openInMac.href = `vibez://channel/${encodeURIComponent(info.id)}`;
+    openInMac.classList.toggle("hidden", !isMac);
     channelDj.textContent = info.djAway ? `🎧 ${info.activeDjName} (away)` : `🎧 ${info.activeDjName}`;
     updateDj(info.activeDjName);
     djControls.classList.toggle("hidden", !roles.isActiveDj);
