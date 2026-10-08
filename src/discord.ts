@@ -6,6 +6,8 @@ import { listenUrls } from "./notifications";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
+type SavedRoom = { room: DirectoryEntry; body: string; messageId: string | null };
+
 type DiscordFeedOptions = {
   webhookUrl?: string;
   radioUrl?: string;
@@ -81,7 +83,7 @@ export function createDiscordFeed(options: DiscordFeedOptions = {}) {
   }
 
   return {
-    // Resolves once Discord shows `live`; sync([]) ends every room (used on shutdown).
+    // Resolves once Discord shows `live`; sync([]) ends every room.
     async sync(live: DirectoryEntry[]): Promise<void> {
       if (!webhookUrl) return;
       const pending: Promise<unknown>[] = [];
@@ -96,6 +98,15 @@ export function createDiscordFeed(options: DiscordFeedOptions = {}) {
         rooms.delete(id);
       }
       await Promise.all(pending);
+    },
+
+    // Across a restart: a restored room keeps editing its card instead of posting a new one.
+    async save(): Promise<SavedRoom[]> {
+      return Promise.all([...rooms.values()].map(async ({ room, body, messageId }) => ({ room, body, messageId: await messageId })));
+    },
+
+    load(saved: SavedRoom[]) {
+      for (const { room, body, messageId } of saved) rooms.set(room.id, { room, body, messageId: Promise.resolve(messageId) });
     },
   };
 }

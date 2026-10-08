@@ -300,6 +300,32 @@ export function sweepChannels(now: number): Array<{ channel: Channel; reason: En
   return ended;
 }
 
+// --- Restart ---
+// A deploy restarts the server; rooms are written on shutdown and restored on boot. Connections
+// are not kept: listeners rejoin by themselves, and the DJ counts as away since the shutdown, so
+// the usual DJ_GONE_MS sweep ends a room whose DJ doesn't come back.
+
+type ChannelSnapshot = Omit<Channel, "members" | "trustedEmails"> & { trustedEmails: string[] };
+
+export function snapshotChannels(now: number) {
+  const saved: ChannelSnapshot[] = [...channels.values()].map(({ members, trustedEmails, ...ch }) => ({
+    ...ch,
+    trustedEmails: [...trustedEmails],
+  }));
+  return { savedAt: now, channels: saved };
+}
+
+export function restoreChannels(snapshot: ReturnType<typeof snapshotChannels>) {
+  for (const ch of snapshot.channels) {
+    channels.set(ch.id, {
+      ...ch,
+      trustedEmails: new Set(ch.trustedEmails),
+      members: new Map(),
+      activeDjGoneSince: ch.activeDjGoneSince ?? snapshot.savedAt,
+    });
+  }
+}
+
 export function memberNames(ch: Channel): string[] {
   return [...ch.members.values()].map((member) => member.name);
 }

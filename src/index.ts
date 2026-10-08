@@ -1,9 +1,12 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createBunWebSocket } from "hono/bun";
 import { handleOpen, handleClose, handleMessage, runSweep } from "./ws";
 import { startSlack } from "./slack";
 import { discord } from "./discord";
+import { restoreChannels, snapshotChannels } from "./channels";
 import { createAuthRoutes, loadAuthConfig, sessionFromHeaders } from "./auth";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
@@ -55,9 +58,32 @@ startSlack().catch((err) => {
 
 setInterval(() => runSweep(), 15_000);
 
-// Deploys stop the container: close the Discord posts of the rooms that die with this process.
+// Deploys restart the container: rooms (and their Discord cards) are saved on SIGTERM and restored
+// on boot. .cache is a host volume (docker-compose.prod.yml), so the file outlives the container.
+const ROOMS_FILE = join(import.meta.dir, "..", ".cache", "rooms.json");
+
+if (existsSync(ROOMS_FILE)) {
+  try {
+    const saved = JSON.parse(readFileSync(ROOMS_FILE, "utf8"));
+    restoreChannels(saved.rooms);
+    discord.load(saved.discord);
+    console.log(`[vibez] Restored ${saved.rooms.channels.length} room(s) from before the restart`);
+  } catch (err) {
+    console.error("[vibez] Could not restore rooms:", err);
+  }
+  unlinkSync(ROOMS_FILE); // a bad file must not come back on the next boot
+}
+
 process.on("SIGTERM", async () => {
-  await discord.sync([]);
+  try {
+    mkdirSync(dirname(ROOMS_FILE), { recursive: true });
+    const data = JSON.stringify({ rooms: snapshotChannels(Date.now()), discord: await discord.save() });
+    writeFileSync(`${ROOMS_FILE}.tmp`, data);
+    renameSync(`${ROOMS_FILE}.tmp`, ROOMS_FILE); // a kill mid-write leaves no torn file
+  } catch (err) {
+    console.error("[vibez] Could not save rooms, ending them:", err);
+    await discord.sync([]);
+  }
   process.exit(0);
 });
 

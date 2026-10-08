@@ -101,4 +101,18 @@ describe("discord feed", () => {
     await feed.sync([room({ trackTitle: "Other" })]);
     await feed.sync([]);
   });
+
+  test("message ids survive a restart", async () => {
+    const before = fakeDiscord();
+    await before.feed.sync([room()]);
+    const saved = JSON.parse(JSON.stringify(await before.feed.save()));
+
+    const after = fakeDiscord();
+    after.feed.load(saved);
+    await after.feed.sync([room()]); // same room, nothing changed
+    await after.feed.sync([room({ trackTitle: "After deploy" })]);
+
+    expect(after.calls).toHaveLength(1);
+    expect(after.calls[0]).toMatchObject({ method: "PATCH", url: `${HOOK}/messages/1` });
+  });
 });

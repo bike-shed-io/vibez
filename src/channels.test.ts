@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   addMember, canTakeDecks, channels, directory, DJ_GONE_MS, IDLE_MS, removeMember, rolesFor,
-  setTrack, startChannel, sweepChannels, takeDecks, trust, untrust,
+  restoreChannels, setTrack, snapshotChannels, startChannel, sweepChannels, takeDecks, trust, untrust,
 } from "./channels";
 
 const NOW = 1_000_000;
@@ -252,5 +252,30 @@ describe("directory", () => {
       id: busy.id, ownerName: "Anna", ownerPicture: "https://x/a.png", roomName: "busy", activeDjName: "Anna",
       djAway: false, trackTitle: null, trackUrl: null, trackArtwork: null, isPlaying: false, listenerCount: 2,
     });
+  });
+});
+
+describe("snapshot across a restart", () => {
+  test("restores rooms without their connections, DJ away since the shutdown", () => {
+    const channel = live();
+    addMember(channel, "c1", { name: "Pat", email: "pat@example.com", connectedAt: NOW });
+    setTrack(channel, "https://soundcloud.com/a/b", "Song", null, "https://cf-media/stream");
+    const snapshot = JSON.parse(JSON.stringify(snapshotChannels(NOW + 5)));
+    channels.clear();
+
+    restoreChannels(snapshot);
+
+    const restored = channels.get(channel.id)!;
+    expect(restored.members.size).toBe(0);
+    expect([...restored.trustedEmails]).toEqual([ANNA]);
+    expect(restored.trackTitle).toBe("Song");
+    expect(restored.activeDjGoneSince).toBe(NOW + 5);
+  });
+
+  test("a DJ who does not come back ends the restored room as usual", () => {
+    live();
+    restoreChannels(JSON.parse(JSON.stringify(snapshotChannels(NOW))));
+    expect(sweepChannels(NOW + DJ_GONE_MS - 1)).toEqual([]);
+    expect(sweepChannels(NOW + DJ_GONE_MS).map((e) => e.reason)).toEqual(["dj-gone"]);
   });
 });

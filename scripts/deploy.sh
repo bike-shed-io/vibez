@@ -31,7 +31,7 @@ rsync -azP --delete -e "$SSH" \
   . "$USER@$SERVER:~/source/"
 
 # 2. Sync compose + env
-$SSH "$USER@$SERVER" "mkdir -p ~/deploy"
+$SSH "$USER@$SERVER" "mkdir -p ~/deploy/.cache"
 scp -i "$SSH_KEY" docker-compose.prod.yml "$USER@$SERVER:~/deploy/docker-compose.yml"
 scp -i "$SSH_KEY" env/prod.env "$USER@$SERVER:~/deploy/prod.env"
 

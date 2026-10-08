@@ -87,7 +87,7 @@ jobs:
 
       - name: Copy compose file and env to deploy dir
         run: |
-          ssh -i ~/.ssh/deploy_vibez_ed25519 vibez@188.245.49.145 "mkdir -p ~/deploy"
+          ssh -i ~/.ssh/deploy_vibez_ed25519 vibez@188.245.49.145 "mkdir -p ~/deploy/.cache"
           scp -i ~/.ssh/deploy_vibez_ed25519 docker-compose.prod.yml vibez@188.245.49.145:~/deploy/docker-compose.yml
           scp -i ~/.ssh/deploy_vibez_ed25519 env/prod.env vibez@188.245.49.145:~/deploy/prod.env
 

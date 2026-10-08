@@ -6,3 +6,8 @@ services:
       - "127.0.0.1:3005:3005"
     env_file:
       - prod.env
+    # ~/deploy/.cache outlives the container: rooms are saved there on SIGTERM and restored on boot
+    # (src/index.ts). :U chowns it to the container user; on the host use `podman unshare ls ~/deploy/.cache`.
+    volumes:
+      - ./.cache:/app/.cache:U,Z
+    stop_grace_period: 10s
