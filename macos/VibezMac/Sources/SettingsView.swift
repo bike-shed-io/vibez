@@ -64,6 +64,12 @@ struct SettingsView: View {
           Text("Trusted DJs can take the decks when you're live.")
             .font(.caption)
             .foregroundStyle(.secondary)
+          if isLiveOwner {
+            Toggle("Only trusted DJs can add tracks", isOn: Binding(
+              get: { appModel.currentChannel?.queueTrustedOnly ?? false },
+              set: { appModel.setQueueTrustedOnly($0) }
+            ))
+          }
         }
 
         Section("Your mix") {

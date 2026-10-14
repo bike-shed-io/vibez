@@ -12,6 +12,7 @@ function room(overrides: Partial<DirectoryEntry> = {}): DirectoryEntry {
     roomName: "hypetrain",
     activeDjName: "powerPAT",
     djAway: false,
+    queueTrustedOnly: false,
     trackTitle: "Ed Solo - Minirig",
     trackUrl: "https://soundcloud.com/edsolo/minirig",
     trackArtwork: "https://i1.sndcdn.com/art.jpg",

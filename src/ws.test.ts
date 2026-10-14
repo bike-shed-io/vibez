@@ -119,8 +119,8 @@ describe("going live", () => {
     const id = await goLive(pat);
 
     const state = last(pat, "channel:state");
-    expect(state.channel).toEqual({ id, ownerName: "DJ Pat", ownerPicture: null, roomName: "fridays", activeDjName: "DJ Pat", djAway: false });
-    expect(state.roles).toEqual({ isOwner: true, isTrusted: false, isActiveDj: true, trustedEmails: [] });
+    expect(state.channel).toEqual({ id, ownerName: "DJ Pat", ownerPicture: null, roomName: "fridays", activeDjName: "DJ Pat", djAway: false, queueTrustedOnly: false });
+    expect(state.roles).toEqual({ isOwner: true, isTrusted: false, isActiveDj: true, canQueue: true, trustedEmails: [] });
     expect(state.listeners).toEqual(["DJ Pat"]);
 
     await goLive(pat, { roomName: "renamed" });
@@ -195,7 +195,26 @@ describe("permissions", () => {
     const anon = await connect("anon", "Anon");
     await send(anon, { type: "channel:join", channelId: id });
     await send(anon, { type: "queue:add", url: "https://soundcloud.com/a/b" });
-    expect(anon.sent).toEqual([{ type: "error", message: "Sign in to DJ" }]);
+    expect(anon.sent).toEqual([{ type: "error", message: "Sign in to add tracks" }]);
+  });
+
+  test("the owner can limit the queue to trusted DJs", async () => {
+    const pat = await connect("pat", "Pat", user("pat@example.com", "Pat"));
+    const id = await goLive(pat, { trustedEmails: ["anna@example.com"] });
+    const max = await connect("max", "Max", user("max@example.com", "Max"));
+    await send(max, { type: "channel:join", channelId: id });
+    expect(last(max, "channel:state").roles.canQueue).toBe(true);
+
+    await send(max, { type: "live:queue-access", trustedOnly: true });
+    expect(max.sent).toEqual([{ type: "error", message: "Only the owner can do that" }]);
+
+    await send(pat, { type: "live:queue-access", trustedOnly: true });
+    const update = last(max, "channel:update");
+    expect(update.channel.queueTrustedOnly).toBe(true);
+    expect(update.roles.canQueue).toBe(false);
+
+    await send(max, { type: "queue:add", url: "https://soundcloud.com/a/b" });
+    expect(max.sent).toEqual([{ type: "error", message: "Only trusted DJs can add tracks here" }]);
   });
 });
 
@@ -233,7 +252,7 @@ describe("trusted DJs", () => {
     await send(pat, { type: "live:untrust", email: "anna@example.com" });
     const update = last(anna, "channel:update");
     expect(update.notice).toBe("DJ Pat took the decks back");
-    expect(update.roles).toEqual({ isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] });
+    expect(update.roles).toEqual({ isOwner: false, isTrusted: false, isActiveDj: false, canQueue: true, trustedEmails: [] });
   });
 
   test("non-owners cannot change the trusted list", async () => {

@@ -1,7 +1,7 @@
 (() => {
   // --- State ---
   let ws = null;
-  let roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+  let roles = { isOwner: false, isTrusted: false, isActiveDj: false, canQueue: true, trustedEmails: [] };
   let currentChannel = null;      // ChannelInfo or null
   let directoryEntries = [];
   let isAdmin = false;
@@ -55,6 +55,7 @@
   const channelNotice = $("channelNotice");
   const backToChannels = $("backToChannels");
   const trustPanel = $("trustPanel");
+  const queueTrustedOnly = $("queueTrustedOnly");
   const trustList = $("trustList");
   const trustForm = $("trustForm");
   const trustEmailInput = $("trustEmailInput");
@@ -291,7 +292,7 @@
   // --- Channel cleanup (leaving, kicked out, or the channel ending under us) ---
   function resetChannelState() {
     currentChannel = null;
-    roles = { isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] };
+    roles = { isOwner: false, isTrusted: false, isActiveDj: false, canQueue: true, trustedEmails: [] };
     stopHeartbeat();
     clearPlayer();
   }
@@ -323,6 +324,8 @@
     renameBtn.classList.toggle("hidden", !roles.isOwner);
     endLiveBtn.classList.toggle("hidden", !roles.isOwner);
     trustPanel.classList.toggle("hidden", !roles.isOwner);
+    queueTrustedOnly.checked = !!info.queueTrustedOnly;
+    renderQueueAccess();
     if (roles.isActiveDj && !wasDj) startHeartbeat();
     if (!roles.isActiveDj && wasDj) stopHeartbeat();
     renderQueue(queueItems);
@@ -444,6 +447,18 @@
   renameBtn.addEventListener("click", () => {
     const next = window.prompt("Room name", currentChannel?.roomName || "");
     if (next !== null) ws.send(JSON.stringify({ type: "live:rename", roomName: next }));
+  });
+
+  // The server decides who may queue (roles.canQueue); this only mirrors it.
+  function renderQueueAccess() {
+    const allowed = !!currentUser && roles.canQueue;
+    queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
+    queueUrlInput.placeholder = !currentUser ? "Sign in to add tracks"
+      : allowed ? "Add SoundCloud URL to queue..." : "Only trusted DJs can add tracks here";
+  }
+
+  queueTrustedOnly.addEventListener("change", () => {
+    ws.send(JSON.stringify({ type: "live:queue-access", trustedOnly: queueTrustedOnly.checked }));
   });
 
   trustForm.addEventListener("submit", (event) => {
@@ -943,8 +958,7 @@
     userChip.classList.toggle("hidden", !currentUser);
     goLiveOpenBtn.disabled = !currentUser;
     goLiveSignInHint.classList.toggle("hidden", !!currentUser);
-    queueAddBtn.disabled = !currentUser;
-    queueUrlInput.disabled = !currentUser;
+    renderQueueAccess();
     if (!currentUser) return;
     userName.textContent = localStorage.getItem("vibez:name") || currentUser.givenName;
     userAvatar.classList.toggle("hidden", !currentUser.picture);

@@ -7,6 +7,7 @@ struct ChannelInfo: Decodable, Equatable, Identifiable {
   let roomName: String?
   let activeDjName: String
   let djAway: Bool
+  let queueTrustedOnly: Bool? // optional: older servers don't send it
 
   var displayName: String { roomName ?? "\(ownerName)'s vibes" }
 }
@@ -30,9 +31,10 @@ struct ChannelRoles: Decodable, Equatable {
   let isOwner: Bool
   let isTrusted: Bool
   let isActiveDj: Bool
+  let canQueue: Bool? // optional: older servers don't send it (and check queue:add themselves)
   let trustedEmails: [String]
 
-  static let none = ChannelRoles(isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [])
+  static let none = ChannelRoles(isOwner: false, isTrusted: false, isActiveDj: false, canQueue: nil, trustedEmails: [])
 }
 
 struct TrustablePerson: Decodable, Equatable, Identifiable {

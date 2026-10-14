@@ -342,6 +342,10 @@ final class VibezAppModel: NSObject, ObservableObject {
     send(["type": "live:rename", "roomName": name])
   }
 
+  func setQueueTrustedOnly(_ trustedOnly: Bool) {
+    send(["type": "live:queue-access", "trustedOnly": trustedOnly])
+  }
+
   func trust(email: String) {
     send(["type": "live:trust", "email": email])
   }

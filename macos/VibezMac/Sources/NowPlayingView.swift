@@ -245,7 +245,11 @@ struct NowPlayingView: View {
         Text(appModel.queueSummary).font(.caption).foregroundStyle(.secondary)
       }
 
-      if appModel.user != nil {
+      if appModel.user != nil && appModel.roles.canQueue == false {
+        Text("Only trusted DJs can add tracks here")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      } else if appModel.user != nil {
         HStack(spacing: 6) {
           TextField("Add SoundCloud URL to queue…", text: $appModel.queueDraftURL)
             .textFieldStyle(.roundedBorder)

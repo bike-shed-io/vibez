@@ -25,6 +25,7 @@ export type Channel = {
   ownerPicture: string | null;
   roomName: string | null;
   trustedEmails: Set<string>;
+  queueTrustedOnly: boolean; // only owner, trusted DJs and the DJ may add tracks
   activeDjEmail: string;
   activeDjName: string;
   startedAt: number;
@@ -51,6 +52,7 @@ export type ChannelInfo = {
   roomName: string | null;
   activeDjName: string;
   djAway: boolean;
+  queueTrustedOnly: boolean;
 };
 
 export type DirectoryEntry = ChannelInfo & {
@@ -65,6 +67,7 @@ export type Roles = {
   isOwner: boolean;
   isTrusted: boolean;
   isActiveDj: boolean;
+  canQueue: boolean;
   trustedEmails: string[];
 };
 
@@ -154,6 +157,7 @@ export function startChannel(
     ownerPicture: owner.picture,
     roomName,
     trustedEmails,
+    queueTrustedOnly: false,
     activeDjEmail: ownerEmail,
     activeDjName: ownerName,
     startedAt: now,
@@ -250,10 +254,13 @@ export function untrust(ch: Channel, email: string): boolean {
 export function rolesFor(ch: Channel, email: string | null): Roles {
   const normalized = email ? normalizeEmail(email) : null;
   const isOwner = normalized === ch.ownerEmail;
+  const isTrusted = normalized !== null && ch.trustedEmails.has(normalized);
+  const isActiveDj = normalized === ch.activeDjEmail;
   return {
     isOwner,
-    isTrusted: normalized !== null && ch.trustedEmails.has(normalized),
-    isActiveDj: normalized === ch.activeDjEmail,
+    isTrusted,
+    isActiveDj,
+    canQueue: normalized !== null && (!ch.queueTrustedOnly || isOwner || isTrusted || isActiveDj),
     trustedEmails: isOwner ? [...ch.trustedEmails].sort() : [],
   };
 }
@@ -266,6 +273,7 @@ export function channelInfo(ch: Channel): ChannelInfo {
     roomName: ch.roomName,
     activeDjName: ch.activeDjName,
     djAway: ch.activeDjGoneSince !== null,
+    queueTrustedOnly: ch.queueTrustedOnly,
   };
 }
 
