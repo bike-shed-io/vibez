@@ -8,6 +8,7 @@ struct SettingsView: View {
   @State private var isSaving = false
   @State private var saveError: String?
   @State private var emailDraft = ""
+  @AppStorage(VibezAppModel.joinSoundKey) private var joinSound = true
 
   var body: some View {
     VStack(spacing: 0) {
@@ -75,6 +76,7 @@ struct SettingsView: View {
           LabeledContent("AirPlay") {
             AirPlayPickerView().frame(width: 22, height: 22)
           }
+          Toggle("Sound when someone joins while you DJ", isOn: $joinSound)
         }
 
         Section {
