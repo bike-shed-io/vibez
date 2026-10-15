@@ -8,7 +8,7 @@ import {
   rolesFor, setTrack, shuffleQueue, startChannel, sweepChannels, takeDecks, trust, untrust,
   type Channel, type EndReason,
 } from "./channels";
-import { resolveStreamUrl, resolveTracks } from "./soundcloud";
+import { resolveStreamUrl, resolveTracks } from "./sources";
 
 export const PROTOCOL_VERSION = 2;
 export const UPDATE_MESSAGE = "Update Vibez: brew upgrade --cask vibez";
