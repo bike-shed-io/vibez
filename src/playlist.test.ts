@@ -77,7 +77,8 @@ describe("playlist support — dj:play", () => {
     expect(channel.trackTitle).not.toBeNull();
     expect(channel.isPlaying).toBe(true);
     expect(channel.streamUrl).not.toBeNull();
-    expect(channel.streamUrl).toContain("sndcdn.com");
+    // SoundCloud's progressive/HLS host has moved off sndcdn.com (now *.soundcloud.cloud).
+    expect(channel.streamUrl).toMatch(/sndcdn\.com|soundcloud\.cloud/);
 
     // Remaining tracks should be in the queue
     expect(channel.queue.length).toBeGreaterThanOrEqual(1);
