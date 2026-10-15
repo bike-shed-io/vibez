@@ -38,11 +38,13 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
       }
       .store(in: &cancellables)
 
-    appModel.$roles
-      .sink { [weak self] roles in
-        let symbol = roles.isActiveDj ? "antenna.radiowaves.left.and.right.circle.fill" : "dot.radiowaves.left.and.right"
-        self?.statusItem.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "vibez")
+    Publishers.CombineLatest3(appModel.$roles, appModel.$directory, appModel.$currentChannel)
+      .map { roles, directory, channel -> MenuBarIcon.State in
+        if roles.isActiveDj { return .dj }
+        return channel == nil && !directory.isEmpty ? .someoneLive : .idle
       }
+      .removeDuplicates()
+      .sink { [weak self] state in self?.statusItem.button?.image = MenuBarIcon.image(state) }
       .store(in: &cancellables)
   }
 
@@ -97,5 +99,48 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
 
   @objc private func quitApp() {
     NSApp.terminate(nil)
+  }
+}
+
+// The app icon's V of sound bars, drawn as a template image so it takes the menu bar's colors.
+enum MenuBarIcon {
+  enum State { case idle, someoneLive, dj }
+
+  // Left half of the V as (centre y, length) in a unit box; mirrored around the last, lowest bar.
+  private static let halfV: [(y: CGFloat, length: CGFloat)] = [(0.69, 0.26), (0.70, 0.56), (0.52, 0.56), (0.34, 0.44), (0.18, 0.34)]
+
+  static func image(_ state: State) -> NSImage {
+    let bars = halfV + Array(halfV.dropLast().reversed())
+    let height: CGFloat = 16, barWidth: CGFloat = 1.6, gap: CGFloat = 1.1
+    let pad: CGFloat = state == .dj ? 3 : 0 // room for the DJ box around the V
+    let vWidth = CGFloat(bars.count) * barWidth + CGFloat(bars.count - 1) * gap
+    let width = vWidth + 2 * pad + (state == .someoneLive ? 4 : 0)
+
+    let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { rect in
+      NSColor.black.set()
+      if state == .dj {
+        NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: vWidth + 2 * pad, height: height), xRadius: 4, yRadius: 4).fill()
+        NSGraphicsContext.current?.compositingOperation = .destinationOut // the V is cut out of the box
+      }
+      let inner = height - 2 * pad
+      for (i, bar) in bars.enumerated() {
+        let barHeight = max(barWidth, bar.length * inner)
+        let x = pad + CGFloat(i) * (barWidth + gap)
+        let y = pad + bar.y * inner - barHeight / 2
+        NSBezierPath(roundedRect: NSRect(x: x, y: y, width: barWidth, height: barHeight), xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
+      }
+      NSGraphicsContext.current?.compositingOperation = .sourceOver
+      if state == .someoneLive {
+        NSBezierPath(ovalIn: NSRect(x: rect.width - 4.5, y: rect.height - 4.5, width: 4.5, height: 4.5)).fill()
+      }
+      return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = switch state {
+    case .idle: "Vibez"
+    case .someoneLive: "Vibez, someone is live"
+    case .dj: "Vibez, you are live"
+    }
+    return image
   }
 }

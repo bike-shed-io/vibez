@@ -1,3 +1,4 @@
+import AppKit
 import AuthenticationServices
 import AVFoundation
 import Foundation
@@ -35,6 +36,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   private static let djNameKey = "vibez.macos.djName"
   private static let roomNameKey = "vibez.macos.roomName"
   private static let trustedEmailsKey = "vibez.macos.trustedEmails"
+  static let joinSoundKey = "vibez.macos.joinSound"
 
   @Published private(set) var configuration: VibezConfiguration?
   @Published private(set) var connectionState: ConnectionState = .connecting
@@ -133,6 +135,8 @@ final class VibezAppModel: NSObject, ObservableObject {
   private var refreshPosition = 0.0
   private var currentStreamURLString: String?
   private var pendingChannelID: String?
+  // Rejoining (e.g. after a deploy) brings everyone back at once: stay quiet for a moment.
+  private var joinSoundQuietUntil = Date.distantPast
 
   override init() {
     self.baseVolume = defaults.object(forKey: Self.volumeKey) as? Double ?? 0.8
@@ -336,6 +340,10 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   func renameRoom(_ name: String) {
     send(["type": "live:rename", "roomName": name])
+  }
+
+  func setQueueTrustedOnly(_ trustedOnly: Bool) {
+    send(["type": "live:queue-access", "trustedOnly": trustedOnly])
   }
 
   func trust(email: String) {
@@ -572,6 +580,7 @@ final class VibezAppModel: NSObject, ObservableObject {
             let roles = decode(ChannelRoles.self, from: message["roles"]) else { return }
       currentChannel = channel
       self.roles = roles
+      joinSoundQuietUntil = Date().addingTimeInterval(10)
       applyChannelState(message)
     case "channel:update":
       guard let channel = decode(ChannelInfo.self, from: message["channel"]),
@@ -595,7 +604,12 @@ final class VibezAppModel: NSObject, ObservableObject {
     case "seek":
       handleSeek(message)
     case "listeners":
-      listeners = (message["names"] as? [String]) ?? []
+      let names = (message["names"] as? [String]) ?? []
+      if isDJ, names.count > listeners.count, Date() > joinSoundQuietUntil,
+         defaults.object(forKey: Self.joinSoundKey) as? Bool ?? true {
+        NSSound(named: "Pop")?.play()
+      }
+      listeners = names
       trustablePeople = decode([TrustablePerson].self, from: message["people"]) ?? []
     case "vibez":
       vibezLevel = clampSigned(message["boost"] as? Double ?? 0)

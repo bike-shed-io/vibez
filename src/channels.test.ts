@@ -99,9 +99,9 @@ describe("startChannel", () => {
 describe("roles", () => {
   test("only the owner sees the trusted list", () => {
     const channel = live();
-    expect(rolesFor(channel, "pat@example.com")).toEqual({ isOwner: true, isTrusted: false, isActiveDj: true, trustedEmails: [ANNA] });
-    expect(rolesFor(channel, ANNA)).toEqual({ isOwner: false, isTrusted: true, isActiveDj: false, trustedEmails: [] });
-    expect(rolesFor(channel, null)).toEqual({ isOwner: false, isTrusted: false, isActiveDj: false, trustedEmails: [] });
+    expect(rolesFor(channel, "pat@example.com")).toEqual({ isOwner: true, isTrusted: false, isActiveDj: true, canQueue: true, trustedEmails: [ANNA] });
+    expect(rolesFor(channel, ANNA)).toEqual({ isOwner: false, isTrusted: true, isActiveDj: false, canQueue: true, trustedEmails: [] });
+    expect(rolesFor(channel, null)).toEqual({ isOwner: false, isTrusted: false, isActiveDj: false, canQueue: false, trustedEmails: [] });
   });
 
   test("trusted people and the owner can take the decks, others cannot", () => {
@@ -250,7 +250,7 @@ describe("directory", () => {
     expect(entries.map((e) => e.id)).toEqual([busy.id, quiet.id]);
     expect(entries[0]).toEqual({
       id: busy.id, ownerName: "Anna", ownerPicture: "https://x/a.png", roomName: "busy", activeDjName: "Anna",
-      djAway: false, trackTitle: null, trackUrl: null, trackArtwork: null, isPlaying: false, listenerCount: 2,
+      djAway: false, queueTrustedOnly: false, trackTitle: null, trackUrl: null, trackArtwork: null, isPlaying: false, listenerCount: 2,
     });
   });
 });
@@ -277,5 +277,20 @@ describe("snapshot across a restart", () => {
     restoreChannels(JSON.parse(JSON.stringify(snapshotChannels(NOW))));
     expect(sweepChannels(NOW + DJ_GONE_MS - 1)).toEqual([]);
     expect(sweepChannels(NOW + DJ_GONE_MS).map((e) => e.reason)).toEqual(["dj-gone"]);
+  });
+});
+
+describe("who can queue", () => {
+  test("anyone signed in, or only owner, trusted DJs and the DJ when the room says so", () => {
+    const channel = live(); // owner Pat, trusted Anna
+    const canQueue = (email: string | null) => rolesFor(channel, email).canQueue;
+
+    expect([canQueue("pat@example.com"), canQueue(ANNA), canQueue("max@example.com"), canQueue(null)]).toEqual([true, true, true, false]);
+
+    channel.queueTrustedOnly = true;
+    expect([canQueue("pat@example.com"), canQueue(ANNA), canQueue("max@example.com"), canQueue(null)]).toEqual([true, true, false, false]);
+
+    channel.activeDjEmail = "max@example.com"; // whoever holds the decks can always queue
+    expect(canQueue("max@example.com")).toBe(true);
   });
 });

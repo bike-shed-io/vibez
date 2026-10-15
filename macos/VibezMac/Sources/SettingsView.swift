@@ -8,6 +8,7 @@ struct SettingsView: View {
   @State private var isSaving = false
   @State private var saveError: String?
   @State private var emailDraft = ""
+  @AppStorage(VibezAppModel.joinSoundKey) private var joinSound = true
 
   var body: some View {
     VStack(spacing: 0) {
@@ -63,6 +64,12 @@ struct SettingsView: View {
           Text("Trusted DJs can take the decks when you're live.")
             .font(.caption)
             .foregroundStyle(.secondary)
+          if isLiveOwner {
+            Toggle("Only trusted DJs can add tracks", isOn: Binding(
+              get: { appModel.currentChannel?.queueTrustedOnly ?? false },
+              set: { appModel.setQueueTrustedOnly($0) }
+            ))
+          }
         }
 
         Section("Your mix") {
@@ -75,6 +82,7 @@ struct SettingsView: View {
           LabeledContent("AirPlay") {
             AirPlayPickerView().frame(width: 22, height: 22)
           }
+          Toggle("Sound when someone joins while you DJ", isOn: $joinSound)
         }
 
         Section {

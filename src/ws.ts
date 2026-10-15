@@ -339,6 +339,11 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       ch.roomName = cleanRoomName(msg.roomName);
       return sendChannelUpdate(ch);
 
+    case "live:queue-access":
+      if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
+      ch.queueTrustedOnly = msg.trustedOnly === true;
+      return sendChannelUpdate(ch);
+
     case "live:trust":
       if (!roles.isOwner) return sendError(conn, "Only the owner can do that");
       if (trust(ch, String(msg.email ?? ""))) sendChannelUpdate(ch);
@@ -381,7 +386,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
     }
 
     case "queue:add": {
-      if (!conn.user) return sendError(conn, "Sign in to DJ");
+      if (!roles.canQueue) return sendError(conn, conn.user ? "Only trusted DJs can add tracks here" : "Sign in to add tracks");
       const url = String(msg.url || "").trim();
       if (!url) return sendError(conn, "URL is required");
       const tracks = await resolveOrReport(conn, url);
