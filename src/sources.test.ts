@@ -6,6 +6,8 @@ describe("track source", () => {
     expect(trackSource("https://suno.com/song/6d6536c7-4e24-405c-8d6d-0c4e1c4ee981")).toBe("suno");
     expect(trackSource("https://www.suno.com/s/Ab12")).toBe("suno");
     expect(trackSource("https://soundcloud.com/artist/track")).toBe("soundcloud");
+    expect(trackSource("http://radio.test/media/6d6536c7-4e24-405c-8d6d-0c4e1c4ee981.mp3")).toBe("upload");
+    expect(trackSource("/media/6d6536c7-4e24-405c-8d6d-0c4e1c4ee981.m4a")).toBe("upload");
     expect(trackSource("https://on.soundcloud.com/abc")).toBe("soundcloud");
     expect(trackSource("not a url")).toBe("soundcloud");
   });

@@ -259,6 +259,29 @@ struct NowPlayingView: View {
             .disabled(isBlank(appModel.queueDraftURL))
         }
         .disabled(!appModel.isRoomConnected)
+
+        Button("Upload audio…") { appModel.chooseAudioFile() }
+          .disabled(!appModel.isRoomConnected || appModel.isUploadingAudio)
+        Text("mp3, m4a, wav, or aac, up to 50 MB. New Suno songs: download the mp3, then upload it.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+
+        if let filename = appModel.pendingUploadFilename {
+          VStack(alignment: .leading, spacing: 6) {
+            Text(filename).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 6) {
+              TextField("Track title", text: $appModel.pendingUploadTitle)
+                .textFieldStyle(.roundedBorder)
+              Button(appModel.isUploadingAudio ? "Uploading…" : "Queue") {
+                Task { await appModel.uploadPendingAudio() }
+              }
+              .buttonStyle(.borderedProminent)
+              .disabled(appModel.isUploadingAudio)
+              Button("Cancel") { appModel.cancelPendingUpload() }
+                .disabled(appModel.isUploadingAudio)
+            }
+          }
+        }
       } else {
         Button(appModel.isSigningIn ? "Signing in…" : "Sign in to add tracks") {
           Task { await appModel.signIn() }

@@ -2,6 +2,7 @@ import AppKit
 import AuthenticationServices
 import AVFoundation
 import Foundation
+import UniformTypeIdentifiers
 
 struct QueueItem: Identifiable, Equatable {
   let id: String
@@ -91,6 +92,11 @@ final class VibezAppModel: NSObject, ObservableObject {
     return listenerName
   }
   @Published var queueDraftURL = ""
+  @Published var pendingUploadTitle = ""
+  @Published private(set) var pendingUploadFilename: String?
+  @Published private(set) var isUploadingAudio = false
+  private var pendingUploadFileURL: URL?
+  private var pendingUploadHasAccess = false
   @Published var vibezLevel: Double = 0 {
     didSet {
       if vibezLevel < -1 || vibezLevel > 1 || !vibezLevel.isFinite {
@@ -294,6 +300,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   func signOut() {
     SessionTokenStore.clear()
     user = nil
+    cancelPendingUpload()
     reconnect(clearErrors: true)
   }
 
@@ -320,6 +327,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   func joinChannel(id: String) {
+    if currentChannel?.id != id { cancelPendingUpload() }
     send(["type": "channel:join", "channelId": id])
   }
 
@@ -328,6 +336,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     currentChannel = nil
     roles = .none
     clearPlayback()
+    cancelPendingUpload()
   }
 
   func goLive() {
@@ -410,6 +419,151 @@ final class VibezAppModel: NSObject, ObservableObject {
     guard !url.isEmpty else { return }
     send(["type": "queue:add", "url": url])
     queueDraftURL = ""
+  }
+
+  func chooseAudioFile() {
+    guard isRoomConnected, user != nil, roles.canQueue != false, !isUploadingAudio else { return }
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = true
+    panel.canChooseDirectories = false
+    panel.allowsMultipleSelection = false
+    var audioTypes: [UTType] = [.mp3, .mpeg4Audio, .wav]
+    if let aac = UTType(filenameExtension: "aac") { audioTypes.append(aac) }
+    panel.allowedContentTypes = audioTypes
+    panel.prompt = "Upload"
+    panel.message = "Choose an mp3, m4a, wav, or aac file"
+    NSApp.activate()
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    stageUpload(url)
+  }
+
+  func cancelPendingUpload() {
+    releasePendingUploadAccess()
+    pendingUploadFileURL = nil
+    pendingUploadFilename = nil
+    pendingUploadTitle = ""
+  }
+
+  func uploadPendingAudio() async {
+    guard !isUploadingAudio else { return }
+    guard let fileURL = pendingUploadFileURL, let serverURL = configuration?.serverURL, let channelId = currentChannel?.id else {
+      return
+    }
+    guard let token = SessionTokenStore.load() else {
+      errorMessage = "Sign in to upload tracks."
+      return
+    }
+    isUploadingAudio = true
+    defer { isUploadingAudio = false }
+    errorMessage = nil
+    do {
+      let uploaded = try await postMedia(
+        fileURL: fileURL,
+        serverURL: serverURL,
+        token: token,
+        channelId: channelId,
+        title: pendingUploadTitle
+      )
+      send(["type": "queue:add", "url": uploaded.url])
+      cancelPendingUpload()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func stageUpload(_ url: URL) {
+    releasePendingUploadAccess()
+    pendingUploadHasAccess = url.startAccessingSecurityScopedResource()
+    pendingUploadFileURL = url
+    pendingUploadFilename = url.lastPathComponent
+    let stem = url.deletingPathExtension().lastPathComponent
+      .replacingOccurrences(of: "_", with: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    pendingUploadTitle = stem
+  }
+
+  private func releasePendingUploadAccess() {
+    if pendingUploadHasAccess {
+      pendingUploadFileURL?.stopAccessingSecurityScopedResource()
+    }
+    pendingUploadHasAccess = false
+  }
+
+  private func postMedia(fileURL: URL, serverURL: URL, token: String, channelId: String, title: String) async throws -> UploadedMedia {
+    let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    if size <= 0 { throw MediaUploadError.failed("That file is empty.") }
+    if size > 50 * 1024 * 1024 { throw MediaUploadError.failed("File is too large (max 50 MB).") }
+    let fileData = try await Task.detached {
+      try Data(contentsOf: fileURL)
+    }.value
+    let boundary = "vibez-\(UUID().uuidString)"
+    var request = URLRequest(url: serverURL.appending(path: "media"))
+    request.httpMethod = "POST"
+    request.timeoutInterval = 180
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    request.httpBody = multipartBody(
+      boundary: boundary,
+      channelId: channelId,
+      title: title,
+      filename: uploadFilename(for: fileURL),
+      mime: uploadMIME(for: fileURL),
+      fileData: fileData
+    )
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+    guard (200..<300).contains(status) else {
+      let message = (try? JSONDecoder().decode(UploadErrorBody.self, from: data))?.error
+      throw MediaUploadError.failed(message ?? "Upload failed (\(status)).")
+    }
+    let uploaded = try JSONDecoder().decode(UploadedMedia.self, from: data)
+    guard uploaded.url.hasPrefix("http://") || uploaded.url.hasPrefix("https://") else {
+      throw MediaUploadError.failed("Upload failed.")
+    }
+    return uploaded
+  }
+
+  private func multipartBody(boundary: String, channelId: String, title: String, filename: String, mime: String, fileData: Data) -> Data {
+    var body = Data()
+    func append(_ string: String) {
+      body.append(Data(string.utf8))
+    }
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"channelId\"\r\n\r\n")
+    append("\(channelId)\r\n")
+    let safeTitle = title.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"title\"\r\n\r\n")
+    append("\(safeTitle)\r\n")
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+    append("Content-Type: \(mime)\r\n\r\n")
+    body.append(fileData)
+    append("\r\n--\(boundary)--\r\n")
+    return body
+  }
+
+  private func uploadFilename(for url: URL) -> String {
+    let ext = url.pathExtension.lowercased().filter { $0.isLetter || $0.isNumber }
+    let stem = url.deletingPathExtension().lastPathComponent
+    let ascii = stem.unicodeScalars.map { scalar -> Character in
+      let value = scalar.value
+      if value > 32 && value < 127 && value != 34 && value != 92 { return Character(scalar) }
+      return "_"
+    }
+    let cleaned = String(ascii).trimmingCharacters(in: CharacterSet(charactersIn: "._ "))
+    let base = cleaned.isEmpty ? "track" : cleaned
+    return ext.isEmpty ? base : "\(base).\(ext)"
+  }
+
+  private func uploadMIME(for url: URL) -> String {
+    switch url.pathExtension.lowercased() {
+    case "mp3": return "audio/mpeg"
+    case "m4a": return "audio/mp4"
+    case "wav": return "audio/wav"
+    case "aac": return "audio/aac"
+    default: return "application/octet-stream"
+    }
   }
 
   func removeFromQueue(itemId: String) {
@@ -904,6 +1058,24 @@ final class VibezAppModel: NSObject, ObservableObject {
       return Double(string)
     default:
       return nil
+    }
+  }
+}
+
+private struct UploadedMedia: Decodable {
+  let url: String
+}
+
+private struct UploadErrorBody: Decodable {
+  let error: String
+}
+
+private enum MediaUploadError: LocalizedError {
+  case failed(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .failed(let message): return message
     }
   }
 }

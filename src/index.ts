@@ -6,8 +6,9 @@ import { createBunWebSocket } from "hono/bun";
 import { handleOpen, handleClose, handleMessage, runSweep } from "./ws";
 import { startSlack } from "./slack";
 import { discord } from "./discord";
-import { restoreChannels, snapshotChannels } from "./channels";
+import { channels, restoreChannels, snapshotChannels } from "./channels";
 import { createAuthRoutes, loadAuthConfig, sessionFromHeaders } from "./auth";
+import { createMediaRoutes, sweepUploads } from "./uploads";
 
 const { upgradeWebSocket, websocket } = createBunWebSocket();
 const authConfig = loadAuthConfig();
@@ -15,6 +16,7 @@ const authConfig = loadAuthConfig();
 const app = new Hono();
 
 app.route("/auth", createAuthRoutes(authConfig));
+app.route("/", createMediaRoutes(authConfig));
 
 // WebSocket endpoint — everyone may listen; the session (cookie or Bearer) only unlocks DJ/queue actions
 app.get(
@@ -56,7 +58,19 @@ startSlack().catch((err) => {
   console.error("[slack] Failed to start Slack bot:", err.message);
 });
 
-setInterval(() => runSweep(), 15_000);
+function liveMediaUrls(): string[] {
+  const urls: string[] = [];
+  for (const ch of channels.values()) {
+    if (ch.trackUrl) urls.push(ch.trackUrl);
+    for (const item of ch.queue) urls.push(item.url);
+  }
+  return urls;
+}
+
+setInterval(() => {
+  runSweep();
+  sweepUploads(Date.now(), liveMediaUrls());
+}, 15_000);
 
 // Deploys restart the container: rooms (and their Discord cards) are saved on SIGTERM and restored
 // on boot. .cache is a host volume (docker-compose.prod.yml), so the file outlives the container.
@@ -73,6 +87,8 @@ if (existsSync(ROOMS_FILE)) {
   }
   unlinkSync(ROOMS_FILE); // a bad file must not come back on the next boot
 }
+
+sweepUploads(Date.now(), liveMediaUrls());
 
 process.on("SIGTERM", async () => {
   try {

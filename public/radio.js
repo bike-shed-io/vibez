@@ -100,6 +100,12 @@
   const queueEmpty = $("queueEmpty");
   const queueUrlInput = $("queueUrlInput");
   const queueAddBtn = $("queueAddBtn");
+  const queueUploadBtn = $("queueUploadBtn");
+  const queueFileInput = $("queueFileInput");
+  const queueUploadRow = $("queueUploadRow");
+  const queueUploadTitle = $("queueUploadTitle");
+  const queueUploadConfirm = $("queueUploadConfirm");
+  const queueUploadCancel = $("queueUploadCancel");
   const queueDjControls = $("queueDjControls");
   const skipBtn = $("skipBtn");
   const shuffleBtn = $("shuffleBtn");
@@ -295,6 +301,7 @@
     roles = { isOwner: false, isTrusted: false, isActiveDj: false, canQueue: true, trustedEmails: [] };
     stopHeartbeat();
     clearPlayer();
+    clearPendingUpload();
   }
 
   // --- Player ---
@@ -450,11 +457,25 @@
   });
 
   // The server decides who may queue (roles.canQueue); this only mirrors it.
+  let pendingUpload = null;
+  let uploadGeneration = 0;
+
+  function clearPendingUpload() {
+    uploadGeneration++;
+    pendingUpload = null;
+    queueFileInput.value = "";
+    queueUploadTitle.value = "";
+    queueUploadRow.classList.add("hidden");
+    queueUploadConfirm.disabled = false;
+    queueUploadConfirm.textContent = "Queue";
+  }
+
   function renderQueueAccess() {
-    const allowed = !!currentUser && roles.canQueue;
-    queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
+    const allowed = !!currentUser && !!currentChannel && roles.canQueue;
+    queueAddBtn.disabled = queueUrlInput.disabled = queueUploadBtn.disabled = !allowed;
     queueUrlInput.placeholder = !currentUser ? "Sign in to add tracks"
-      : allowed ? "Add SoundCloud URL to queue..." : "Only trusted DJs can add tracks here";
+      : allowed ? "Add SoundCloud or Suno URL to queue..." : "Only trusted DJs can add tracks here";
+    if (!allowed) clearPendingUpload();
   }
 
   queueTrustedOnly.addEventListener("change", () => {
@@ -922,6 +943,49 @@
 
   queueUrlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") queueAddBtn.click();
+  });
+
+  queueUploadBtn.addEventListener("click", () => queueFileInput.click());
+
+  queueFileInput.addEventListener("change", () => {
+    const file = queueFileInput.files && queueFileInput.files[0];
+    if (!file || !currentChannel) return;
+    pendingUpload = file;
+    queueUploadTitle.value = file.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").trim();
+    queueUploadRow.classList.remove("hidden");
+    queueUploadTitle.focus();
+  });
+
+  queueUploadCancel.addEventListener("click", clearPendingUpload);
+
+  queueUploadTitle.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") queueUploadConfirm.click();
+  });
+
+  queueUploadConfirm.addEventListener("click", async () => {
+    const file = pendingUpload;
+    if (!file || !currentChannel || !ws || queueUploadConfirm.disabled) return;
+    const generation = uploadGeneration;
+    const title = queueUploadTitle.value.trim();
+    queueUploadConfirm.disabled = true;
+    queueUploadConfirm.textContent = "Uploading…";
+    try {
+      const body = new FormData();
+      body.append("file", file);
+      body.append("channelId", currentChannel.id);
+      if (title) body.append("title", title);
+      const res = await fetch("/media", { method: "POST", body, credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (generation !== uploadGeneration) return;
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      ws.send(JSON.stringify({ type: "queue:add", url: data.url }));
+      clearPendingUpload();
+    } catch (err) {
+      if (generation !== uploadGeneration) return;
+      queueUploadConfirm.disabled = false;
+      queueUploadConfirm.textContent = "Queue";
+      showError(err.message || "Upload failed");
+    }
   });
 
   skipBtn.addEventListener("click", () => {
