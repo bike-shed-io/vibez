@@ -131,7 +131,7 @@ struct NowPlayingView: View {
   private var djControls: some View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
-        TextField("SoundCloud URL…", text: $appModel.trackDraftURL)
+        TextField("SoundCloud or Suno URL…", text: $appModel.trackDraftURL)
           .textFieldStyle(.roundedBorder)
           .onSubmit { appModel.playTrackDraft() }
         Button("Play") { appModel.playTrackDraft() }
@@ -251,7 +251,7 @@ struct NowPlayingView: View {
           .foregroundStyle(.secondary)
       } else if appModel.user != nil {
         HStack(spacing: 6) {
-          TextField("Add SoundCloud URL to queue…", text: $appModel.queueDraftURL)
+          TextField("Add SoundCloud or Suno URL to queue…", text: $appModel.queueDraftURL)
             .textFieldStyle(.roundedBorder)
             .onSubmit { appModel.addToQueue() }
           Button("Add") { appModel.addToQueue() }
