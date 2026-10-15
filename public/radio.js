@@ -450,11 +450,17 @@
   });
 
   // The server decides who may queue (roles.canQueue); this only mirrors it.
+  // These assignments are the placeholders people see. The matching attributes in
+  // index.html are only the pre-JS fallback, so both sources have to be named here.
   function renderQueueAccess() {
     const allowed = !!currentUser && roles.canQueue;
     queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
-    queueUrlInput.placeholder = !currentUser ? "Sign in to add tracks"
-      : allowed ? "Add SoundCloud URL to queue..." : "Only trusted DJs can add tracks here";
+    trackUrlInput.placeholder = "Paste SoundCloud or Suno URL...";
+    queueUrlInput.placeholder = !currentUser
+      ? "Sign in to add a SoundCloud or Suno URL"
+      : allowed
+        ? "Add SoundCloud or Suno URL to queue..."
+        : "Only trusted DJs can add SoundCloud or Suno tracks here";
   }
 
   queueTrustedOnly.addEventListener("change", () => {
