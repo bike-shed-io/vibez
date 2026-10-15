@@ -44,10 +44,17 @@ type PageResponse = {
   text(): Promise<string>;
 };
 
+/**
+ * `true` — first bytes are an `ftyp` box.
+ * `false` — bytes were read and they are not a media file (the encrypted m4a).
+ * `null` — the read failed, so this says nothing about the file.
+ */
+export type ProbeResult = boolean | null;
+
 export type SunoDeps = {
   fetchPage?: (url: string) => Promise<PageResponse>;
-  /** True when the URL's first bytes are a plain media container (an `ftyp` box). */
-  probe?: (url: string) => Promise<boolean>;
+  /** See {@link ProbeResult}. */
+  probe?: (url: string) => Promise<ProbeResult>;
 };
 
 export function isSunoUrl(raw: string): boolean {
@@ -132,12 +139,17 @@ export async function resolveSunoSong(raw: string, deps: SunoDeps = {}): Promise
 
 /**
  * Prefer the cloudfront clip when its bytes are a real media file. On current public
- * songs that URL is DRM-wrapped (CORS-open, but not an ftyp container), so fall back
- * to the same song's video mp4, which carries a plain AAC track.
+ * songs that URL is encrypted (CORS-open, but not an `ftyp` box; `audio_url` is
+ * `/api/forbidden` and `og:audio` is the silent `sil-100.mp3`), so fall back to the
+ * same song's `cdn1.suno.ai/<uuid>.mp4`, which carries a plain AAC track.
+ *
+ * A failed byte read is not evidence the mp4 is encrypted. Production can fetch the
+ * song page and still be blocked from reading CDN bytes; the browser plays that mp4
+ * directly (`Access-Control-Allow-Origin: *`).
  */
-export async function chooseSunoStream(page: SunoPage, probe: (url: string) => Promise<boolean>): Promise<string> {
-  if (page.m4aUrl && await safeProbe(probe, page.m4aUrl)) return page.m4aUrl;
-  if (page.mp4Url && await safeProbe(probe, page.mp4Url)) return page.mp4Url;
+export async function chooseSunoStream(page: SunoPage, probe: (url: string) => Promise<ProbeResult>): Promise<string> {
+  if (page.m4aUrl && await safeProbe(probe, page.m4aUrl) === true) return page.m4aUrl;
+  if (page.mp4Url && await safeProbe(probe, page.mp4Url) !== false) return page.mp4Url;
   throw new Error("Couldn't find playable audio for this Suno song.");
 }
 
@@ -206,26 +218,34 @@ async function defaultFetchPage(url: string): Promise<PageResponse> {
   });
 }
 
-export async function isPlainContainer(url: string): Promise<boolean> {
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT, Range: "bytes=0-15" },
-  });
-  if (!(res.ok || res.status === 206) || !res.body) return false;
+export async function isPlainContainer(url: string): Promise<ProbeResult> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Range: "bytes=0-15" },
+    });
+  } catch {
+    return null;
+  }
+  // 403/no body means we learned nothing. Only bytes that aren't `ftyp` are a rejection.
+  if (!(res.ok || res.status === 206) || !res.body) return null;
   const reader = res.body.getReader();
   try {
     const { value } = await reader.read();
-    if (!value || value.length < 8) return false;
+    if (!value || value.length < 8) return null;
     return value[4] === 0x66 && value[5] === 0x74 && value[6] === 0x79 && value[7] === 0x70;
+  } catch {
+    return null;
   } finally {
     await reader.cancel().catch(() => {});
   }
 }
 
-async function safeProbe(probe: (url: string) => Promise<boolean>, url: string): Promise<boolean> {
+async function safeProbe(probe: (url: string) => Promise<ProbeResult>, url: string): Promise<ProbeResult> {
   try {
     return await probe(url);
   } catch {
-    return false;
+    return null;
   }
 }
 
