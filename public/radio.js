@@ -100,6 +100,17 @@
   const queueEmpty = $("queueEmpty");
   const queueUrlInput = $("queueUrlInput");
   const queueAddBtn = $("queueAddBtn");
+  const queueUploadBtn = $("queueUploadBtn");
+  const queueUploadPanel = $("queueUploadPanel");
+  const queueUploadEp = $("queueUploadEp");
+  const queueUploadFolder = $("queueUploadFolder");
+  const queueDrop = $("queueDrop");
+  const queueFileInput = $("queueFileInput");
+  const queueUploadFiles = $("queueUploadFiles");
+  const queueUploadConfirm = $("queueUploadConfirm");
+  const queueUploadCancel = $("queueUploadCancel");
+  const epSection = $("epSection");
+  const epList = $("epList");
   const queueDjControls = $("queueDjControls");
   const skipBtn = $("skipBtn");
   const shuffleBtn = $("shuffleBtn");
@@ -295,6 +306,8 @@
     roles = { isOwner: false, isTrusted: false, isActiveDj: false, canQueue: true, trustedEmails: [] };
     stopHeartbeat();
     clearPlayer();
+    clearPendingUpload();
+    renderEps([]);
   }
 
   // --- Player ---
@@ -329,6 +342,7 @@
     if (roles.isActiveDj && !wasDj) startHeartbeat();
     if (!roles.isActiveDj && wasDj) stopHeartbeat();
     renderQueue(queueItems);
+    loadEps();
   }
 
   function showDirectory(message) {
@@ -452,15 +466,119 @@
   // The server decides who may queue (roles.canQueue); this only mirrors it.
   // These assignments are the placeholders people see. The matching attributes in
   // index.html are only the pre-JS fallback, so both sources have to be named here.
+  const UPLOAD_EP_KEY = "vibez:upload-ep";
+  let pendingFiles = [];
+  let uploadGeneration = 0;
+  let uploading = false;
+  let dropDepth = 0;
+  let epLoad = 0;
+
+  function epFolder(value) {
+    const display = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!display) return "";
+    const folded = display.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+    let slug = folded.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (slug.length > 40) slug = slug.slice(0, 40).replace(/-+$/g, "");
+    return /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/.test(slug) ? slug : "";
+  }
+
+  function titleFromFile(file) {
+    return file.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function rememberEp() {
+    localStorage.setItem(UPLOAD_EP_KEY, queueUploadEp.value);
+  }
+
+  function refreshEpFolder() {
+    const slug = epFolder(queueUploadEp.value);
+    const typed = queueUploadEp.value.trim();
+    queueUploadFolder.textContent = slug
+      ? `Stored as ${slug}`
+      : typed
+        ? "Use letters or numbers in the EP name."
+        : "Songs in a Vibez EP play as one set.";
+  }
+
+  function uploadConfirmLabel() {
+    const count = pendingFiles.length;
+    if (count === 0) return "Add songs";
+    if (count === 1) return "Add 1 song";
+    return `Add ${count} songs`;
+  }
+
+  function updateUploadConfirm() {
+    const ready = !!epFolder(queueUploadEp.value) && pendingFiles.length > 0 && !uploading;
+    queueUploadConfirm.disabled = !ready;
+    if (!uploading) queueUploadConfirm.textContent = uploadConfirmLabel();
+  }
+
+  function renderUploadFiles() {
+    queueUploadFiles.replaceChildren();
+    for (const item of pendingFiles) {
+      const row = document.createElement("li");
+      row.className = "queue-upload-file";
+      const title = document.createElement("input");
+      title.type = "text";
+      title.maxLength = 200;
+      title.value = item.title;
+      title.placeholder = "Track title";
+      title.disabled = uploading;
+      title.addEventListener("input", () => {
+        item.title = title.value;
+      });
+      const name = document.createElement("span");
+      name.className = "queue-upload-filename";
+      name.textContent = item.file.name;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn-small btn-secondary queue-upload-remove";
+      remove.textContent = "Remove";
+      remove.disabled = uploading;
+      remove.addEventListener("click", () => {
+        if (uploading) return;
+        pendingFiles = pendingFiles.filter((row) => row.id !== item.id);
+        renderUploadFiles();
+      });
+      row.append(title, remove, name);
+      queueUploadFiles.append(row);
+    }
+    updateUploadConfirm();
+  }
+
+  function addUploadFiles(fileList) {
+    if (uploading) return;
+    const incoming = [...fileList];
+    const accepted = incoming.filter((file) => /\.(mp3|m4a|wav|aac)$/i.test(file.name));
+    if (accepted.length !== incoming.length) showError("Upload an mp3, m4a, wav, or aac file");
+    for (const file of accepted) {
+      pendingFiles.push({ id: crypto.randomUUID(), file, title: titleFromFile(file) });
+    }
+    queueFileInput.value = "";
+    if (accepted.length) renderUploadFiles();
+  }
+
+  function clearPendingUpload() {
+    uploadGeneration++;
+    uploading = false;
+    pendingFiles = [];
+    dropDepth = 0;
+    queueFileInput.value = "";
+    queueDrop.classList.remove("drag-over");
+    queueUploadPanel.classList.add("hidden");
+    renderUploadFiles();
+  }
+
   function renderQueueAccess() {
-    const allowed = !!currentUser && roles.canQueue;
-    queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
+    const allowed = !!currentUser && !!currentChannel && roles.canQueue;
+    queueAddBtn.disabled = queueUrlInput.disabled = queueUploadBtn.disabled = !allowed;
     trackUrlInput.placeholder = "Paste SoundCloud or Suno URL...";
     queueUrlInput.placeholder = !currentUser
       ? "Sign in to add a SoundCloud or Suno URL"
       : allowed
         ? "Add SoundCloud or Suno URL to queue..."
         : "Only trusted DJs can add SoundCloud or Suno tracks here";
+    if (!allowed) clearPendingUpload();
   }
 
   queueTrustedOnly.addEventListener("change", () => {
@@ -928,6 +1046,187 @@
 
   queueUrlInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") queueAddBtn.click();
+  });
+
+  queueUploadEp.value = localStorage.getItem(UPLOAD_EP_KEY) || "";
+  refreshEpFolder();
+
+  queueUploadBtn.addEventListener("click", () => {
+    if (queueUploadBtn.disabled) return;
+    queueUploadPanel.classList.remove("hidden");
+    queueUploadEp.focus();
+  });
+
+  queueUploadEp.addEventListener("input", () => {
+    rememberEp();
+    refreshEpFolder();
+    updateUploadConfirm();
+  });
+
+  function openFilePicker() {
+    if (uploading || queueUploadBtn.disabled) return;
+    queueFileInput.click();
+  }
+
+  queueDrop.addEventListener("click", openFilePicker);
+  queueDrop.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openFilePicker();
+    }
+  });
+
+  queueFileInput.addEventListener("change", () => {
+    if (queueFileInput.files) addUploadFiles(queueFileInput.files);
+  });
+
+  queueDrop.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    if (uploading) return;
+    dropDepth++;
+    queueDrop.classList.add("drag-over");
+  });
+
+  queueDrop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+  });
+
+  queueDrop.addEventListener("dragleave", () => {
+    dropDepth = Math.max(0, dropDepth - 1);
+    if (dropDepth === 0) queueDrop.classList.remove("drag-over");
+  });
+
+  queueDrop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropDepth = 0;
+    queueDrop.classList.remove("drag-over");
+    if (event.dataTransfer) addUploadFiles(event.dataTransfer.files);
+  });
+
+  queueUploadCancel.addEventListener("click", () => {
+    if (uploading) clearPendingUpload();
+    else {
+      pendingFiles = [];
+      renderUploadFiles();
+      queueUploadPanel.classList.add("hidden");
+    }
+  });
+
+  function renderEps(eps) {
+    const allowed = !!currentUser && !!currentChannel && roles.canQueue;
+    epSection.classList.toggle("hidden", !allowed);
+    epList.replaceChildren();
+    if (!allowed) return;
+    if (!eps.length) {
+      const empty = document.createElement("div");
+      empty.className = "queue-empty";
+      empty.textContent = "No Vibez EPs yet. Upload songs to start one.";
+      epList.append(empty);
+      return;
+    }
+    for (const ep of eps) {
+      const block = document.createElement("div");
+      block.className = "ep-block";
+      const head = document.createElement("div");
+      head.className = "ep-head";
+      const name = document.createElement("div");
+      name.className = "ep-name";
+      name.textContent = ep.name;
+      head.append(name);
+      if (roles.isActiveDj) {
+        const play = document.createElement("button");
+        play.type = "button";
+        play.className = "btn-small btn-primary";
+        play.textContent = "Play";
+        play.title = "Shuffle this EP. Skip plays each song once.";
+        play.addEventListener("click", () => {
+          if (ws) ws.send(JSON.stringify({ type: "ep:play", slug: ep.slug }));
+        });
+        head.append(play);
+      }
+      const songs = document.createElement("ul");
+      songs.className = "ep-songs";
+      for (const track of ep.tracks) {
+        const row = document.createElement("li");
+        row.className = "ep-song";
+        const title = document.createElement("span");
+        title.textContent = track.title;
+        row.append(title);
+        if (roles.isActiveDj) {
+          const play = document.createElement("button");
+          play.type = "button";
+          play.className = "btn-small btn-secondary";
+          play.textContent = "Play";
+          play.title = "Play this song, then the rest of the EP in random order";
+          play.addEventListener("click", () => {
+            if (ws) ws.send(JSON.stringify({ type: "ep:play", slug: ep.slug, trackId: track.id }));
+          });
+          row.append(play);
+        }
+        songs.append(row);
+      }
+      block.append(head, songs);
+      epList.append(block);
+    }
+  }
+
+  async function loadEps() {
+    const generation = ++epLoad;
+    if (!currentUser || !currentChannel || !roles.canQueue) {
+      renderEps([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/eps?channelId=${encodeURIComponent(currentChannel.id)}`, { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (generation !== epLoad) return;
+      renderEps(res.ok && Array.isArray(data.eps) ? data.eps : []);
+    } catch {
+      if (generation === epLoad) renderEps([]);
+    }
+  }
+
+  queueUploadConfirm.addEventListener("click", async () => {
+    if (queueUploadConfirm.disabled || !currentChannel || !ws || uploading) return;
+    const ep = queueUploadEp.value.trim();
+    const generation = uploadGeneration;
+    const batch = pendingFiles.slice();
+    let queuedCount = 0;
+    uploading = true;
+    queueUploadConfirm.disabled = true;
+    try {
+      for (let index = 0; index < batch.length; index++) {
+        if (generation !== uploadGeneration) return;
+        const item = batch[index];
+        queueUploadConfirm.textContent = `Adding ${index + 1} of ${batch.length}…`;
+        const body = new FormData();
+        body.append("file", item.file);
+        body.append("channelId", currentChannel.id);
+        body.append("ep", ep);
+        if (item.title.trim()) body.append("title", item.title.trim());
+        const res = await fetch("/media", { method: "POST", body, credentials: "same-origin" });
+        const data = await res.json().catch(() => ({}));
+        if (generation !== uploadGeneration) return;
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        if (data.queued) queuedCount++;
+        pendingFiles = pendingFiles.filter((row) => row.id !== item.id);
+        renderUploadFiles();
+      }
+    } catch (err) {
+      if (generation !== uploadGeneration) return;
+      uploading = false;
+      renderUploadFiles();
+      loadEps();
+      showError(err.message || "Upload failed");
+      return;
+    }
+    if (generation !== uploadGeneration) return;
+    uploading = false;
+    pendingFiles = [];
+    renderUploadFiles();
+    loadEps();
+    showNotice(queuedCount > 0 ? `Added to ${ep}. New songs joined the live queue.` : `Added to ${ep}.`);
   });
 
   skipBtn.addEventListener("click", () => {

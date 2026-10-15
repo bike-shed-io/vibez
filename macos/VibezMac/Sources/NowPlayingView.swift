@@ -259,6 +259,90 @@ struct NowPlayingView: View {
             .disabled(isBlank(appModel.queueDraftURL))
         }
         .disabled(!appModel.isRoomConnected)
+
+        TextField("Vibez EP", text: $appModel.uploadEp, prompt: Text("Friday Suno"))
+          .textFieldStyle(.roundedBorder)
+          .disabled(appModel.isUploadingAudio)
+        Text("Songs in one EP play as a set. Download Suno mp3s, then add them here.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+
+        Button("Upload audio…") { appModel.chooseAudioFile() }
+          .disabled(!appModel.isRoomConnected || appModel.isUploadingAudio)
+        Text("mp3, m4a, wav, or aac, up to 50 MB each.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+
+        if !appModel.pendingUploads.isEmpty {
+          VStack(alignment: .leading, spacing: 6) {
+            ForEach($appModel.pendingUploads) { $track in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(track.filename)
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+                HStack(spacing: 6) {
+                  TextField("Track title", text: $track.title)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(appModel.isUploadingAudio)
+                  Button("Remove") { appModel.removePendingUpload(id: track.id) }
+                    .disabled(appModel.isUploadingAudio)
+                }
+              }
+            }
+            HStack(spacing: 6) {
+              Button(appModel.isUploadingAudio ? appModel.uploadProgress : appModel.uploadQueueLabel) {
+                Task { await appModel.uploadPendingAudio() }
+              }
+              .buttonStyle(.borderedProminent)
+              .disabled(
+                appModel.isUploadingAudio
+                  || !appModel.isRoomConnected
+                  || appModel.uploadEp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              )
+              Button("Cancel") { appModel.cancelPendingUpload() }
+                .disabled(appModel.isUploadingAudio)
+            }
+          }
+        }
+
+        if appModel.eps.isEmpty {
+          Text("No Vibez EPs yet. Upload songs to start one.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        } else {
+          Text("Play shuffles the EP. Skip moves to the next song, and nothing repeats until the set is done.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          ForEach(appModel.eps) { ep in
+            VStack(alignment: .leading, spacing: 4) {
+              HStack {
+                Text(ep.name).font(.subheadline.weight(.semibold))
+                Spacer()
+                if appModel.isDJ {
+                  Button("Play") { appModel.playEp(slug: ep.slug) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Shuffle this EP. Skip plays each song once.")
+                }
+              }
+              ForEach(ep.tracks) { track in
+                HStack {
+                  Text(track.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                  Spacer()
+                  if appModel.isDJ {
+                    Button("Play") { appModel.playEp(slug: ep.slug, trackId: track.id) }
+                      .controlSize(.small)
+                      .help("Play this song, then the rest of the EP in random order")
+                  }
+                }
+              }
+            }
+          }
+        }
       } else {
         Button(appModel.isSigningIn ? "Signing in…" : "Sign in to add tracks") {
           Task { await appModel.signIn() }
