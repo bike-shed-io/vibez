@@ -182,14 +182,23 @@
         <input type="url" id="queueUrlInput" placeholder="Add SoundCloud or Suno URL to queue..." disabled />
         <button class="btn-primary" id="queueAddBtn" type="button" disabled>Add</button>
         <button class="btn-secondary" id="queueUploadBtn" type="button" disabled>Upload</button>
-        <input type="file" id="queueFileInput" class="queue-file-input" accept=".mp3,.m4a,.wav,.aac,audio/mpeg,audio/mp4,audio/wav,audio/aac,audio/x-m4a" />
       </div>
-      <div class="queue-upload-row hidden" id="queueUploadRow">
-        <input type="text" id="queueUploadTitle" maxlength="200" placeholder="Track title" />
-        <button class="btn-primary" id="queueUploadConfirm" type="button">Queue</button>
-        <button class="btn-secondary" id="queueUploadCancel" type="button">Cancel</button>
+      <div class="queue-upload-panel hidden" id="queueUploadPanel">
+        <label class="queue-upload-label" for="queueUploadPlaylist">Playlist</label>
+        <input type="text" id="queueUploadPlaylist" maxlength="40" placeholder="Friday Suno" autocomplete="off" />
+        <p class="queue-upload-folder" id="queueUploadFolder">Tracks are stored together under this name.</p>
+        <div class="queue-drop" id="queueDrop" tabindex="0" role="button" aria-label="Drop audio files or choose them">
+          <p>Drop mp3s here, or <span class="queue-choose-files">choose files</span></p>
+          <p class="queue-drop-note">mp3, m4a, wav, or aac, up to 50 MB each.</p>
+          <input type="file" id="queueFileInput" class="queue-file-input" multiple accept=".mp3,.m4a,.wav,.aac,audio/mpeg,audio/mp4,audio/wav,audio/aac,audio/x-m4a" />
+        </div>
+        <ul class="queue-upload-files" id="queueUploadFiles"></ul>
+        <div class="queue-upload-actions">
+          <button class="btn-primary" id="queueUploadConfirm" type="button" disabled>Queue tracks</button>
+          <button class="btn-secondary" id="queueUploadCancel" type="button">Cancel</button>
+        </div>
       </div>
-      <p class="queue-hint">New Suno song? Download the mp3, then upload it. mp3, m4a, wav, or aac, up to 50 MB.</p>
+      <p class="queue-hint">New Suno songs? Download the mp3s, then upload them under a playlist name.</p>
       <div class="queue-list" id="queueList">
         <div class="queue-empty" id="queueEmpty">Queue is empty</div>
       </div>

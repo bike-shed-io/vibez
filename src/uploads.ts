@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Hono } from "hono";
 import { sessionFromHeaders, type AuthConfig } from "./auth";
@@ -35,6 +35,8 @@ type UploadRecord = {
   ext: AudioExt;
   mime: string;
   title: string;
+  playlist: string;
+  playlistSlug: string;
   bytes: number;
   uploadedBy: string;
   createdAt: number;
@@ -75,10 +77,21 @@ export function resetUploadSettings() {
   settings = defaultSettings();
 }
 
-const MEDIA_PATH = /^\/media\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(mp3|m4a|wav|aac)$/i;
+const PLAYLIST_SLUG = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+const MEDIA_PATH = /^\/media\/([a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?)\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(mp3|m4a|wav|aac)$/i;
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PLAYLIST_REQUIRED = "Name the playlist these tracks belong to";
 
-export function mediaIdFromUrl(raw: string): { id: string; ext: AudioExt } | null {
+export function playlistSlug(value: unknown): string | null {
+  const display = cleanPlaylistName(value);
+  if (!display) return null;
+  const folded = display.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+  let slug = folded.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug.length > 40) slug = slug.slice(0, 40).replace(/-+$/g, "");
+  return PLAYLIST_SLUG.test(slug) ? slug : null;
+}
+
+export function mediaIdFromUrl(raw: string): { playlistSlug: string; id: string; ext: AudioExt } | null {
   const trimmed = raw.trim();
   let pathname = "";
   if (trimmed.startsWith("/")) {
@@ -94,7 +107,7 @@ export function mediaIdFromUrl(raw: string): { id: string; ext: AudioExt } | nul
   }
   const match = MEDIA_PATH.exec(pathname);
   if (!match) return null;
-  return { id: match[1].toLowerCase(), ext: match[2].toLowerCase() as AudioExt };
+  return { playlistSlug: match[1], id: match[2].toLowerCase(), ext: match[3].toLowerCase() as AudioExt };
 }
 
 export function isUploadUrl(raw: string): boolean {
@@ -112,6 +125,11 @@ function sizeLabel(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MB`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${bytes} bytes`;
+}
+
+function cleanPlaylistName(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
 }
 
 export function cleanUploadTitle(value: unknown, fallback: string): string {
@@ -145,23 +163,30 @@ function looksLikeAudio(ext: AudioExt, bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0;
 }
 
-function audioPath(record: Pick<UploadRecord, "id" | "ext">): string {
-  return join(settings.dir, `${record.id}.${record.ext}`);
+function audioPath(record: Pick<UploadRecord, "playlistSlug" | "id" | "ext">): string {
+  return join(settings.dir, record.playlistSlug, `${record.id}.${record.ext}`);
 }
 
-function canonicalUrl(record: Pick<UploadRecord, "id" | "ext">): string {
-  return `${settings.origin}/media/${record.id}.${record.ext}`;
+function canonicalUrl(record: Pick<UploadRecord, "playlistSlug" | "id" | "ext">): string {
+  return `${settings.origin}/media/${record.playlistSlug}/${record.id}.${record.ext}`;
 }
 
-function readRecord(id: string): UploadRecord | null {
-  if (!ID_PATTERN.test(id)) return null;
-  const path = join(settings.dir, `${id}.json`);
+function playlistDirs(): string[] {
+  if (!existsSync(settings.dir)) return [];
+  return readdirSync(settings.dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && PLAYLIST_SLUG.test(entry.name))
+    .map((entry) => entry.name);
+}
+
+function readRecord(slug: string, id: string): UploadRecord | null {
+  if (!PLAYLIST_SLUG.test(slug) || !ID_PATTERN.test(id)) return null;
+  const path = join(settings.dir, slug, `${id}.json`);
   if (!existsSync(path)) return null;
   try {
     const raw = JSON.parse(readFileSync(path, "utf8")) as Partial<UploadRecord>;
-    if (raw.id !== id || typeof raw.ext !== "string") return null;
+    if (raw.id !== id || raw.playlistSlug !== slug || typeof raw.ext !== "string") return null;
     if (!AUDIO_EXTS.includes(raw.ext as AudioExt)) return null;
-    if (typeof raw.mime !== "string" || typeof raw.title !== "string") return null;
+    if (typeof raw.mime !== "string" || typeof raw.title !== "string" || typeof raw.playlist !== "string") return null;
     if (typeof raw.bytes !== "number" || typeof raw.createdAt !== "number") return null;
     if (typeof raw.uploadedBy !== "string") return null;
     return raw as UploadRecord;
@@ -171,13 +196,13 @@ function readRecord(id: string): UploadRecord | null {
 }
 
 function storeBytes(): number {
-  if (!existsSync(settings.dir)) return 0;
   let total = 0;
-  for (const name of readdirSync(settings.dir)) {
-    if (!name.endsWith(".json")) continue;
-    const id = name.slice(0, -".json".length);
-    const record = readRecord(id);
-    if (record) total += record.bytes;
+  for (const slug of playlistDirs()) {
+    for (const name of readdirSync(join(settings.dir, slug))) {
+      if (!name.endsWith(".json")) continue;
+      const record = readRecord(slug, name.slice(0, -".json".length));
+      if (record) total += record.bytes;
+    }
   }
   return total;
 }
@@ -193,9 +218,14 @@ function unlinkQuiet(path: string) {
 export async function saveUpload(input: {
   file: File;
   title: unknown;
+  playlist: unknown;
   uploadedBy: string;
   now: number;
-}): Promise<{ id: string; url: string; title: string }> {
+}): Promise<{ id: string; url: string; title: string; playlist: string; playlistSlug: string }> {
+  const playlist = cleanPlaylistName(input.playlist);
+  const slug = playlistSlug(playlist);
+  if (!slug) throw new UploadError(PLAYLIST_REQUIRED, 400);
+
   const ext = extensionOf(input.file.name);
   if (!ext) throw new UploadError("Upload an mp3, m4a, wav, or aac file", 400);
   const mime = (input.file.type || "").split(";")[0]?.trim().toLowerCase() ?? "";
@@ -208,7 +238,8 @@ export async function saveUpload(input: {
   const bytes = new Uint8Array(await input.file.arrayBuffer());
   if (!looksLikeAudio(ext, bytes)) throw new UploadError(`That file doesn't look like a ${ext}`, 400);
 
-  mkdirSync(settings.dir, { recursive: true });
+  const folder = join(settings.dir, slug);
+  mkdirSync(folder, { recursive: true });
   if (storeBytes() + bytes.byteLength > settings.maxTotalBytes) {
     throw new UploadError("Upload storage is full", 507);
   }
@@ -223,23 +254,25 @@ export async function saveUpload(input: {
     ext,
     mime: SERVE_MIME[ext],
     title,
+    playlist,
+    playlistSlug: slug,
     bytes: bytes.byteLength,
     uploadedBy: input.uploadedBy.toLowerCase(),
     createdAt: input.now,
   };
   const finalPath = audioPath(record);
-  const tmpPath = join(settings.dir, `${id}.upload.tmp`);
+  const tmpPath = join(folder, `${id}.upload.tmp`);
   writeFileSync(tmpPath, bytes);
   renameSync(tmpPath, finalPath);
-  writeFileSync(join(settings.dir, `${id}.json`), JSON.stringify(record));
-  console.log(`[uploads] stored ${id}.${ext} (${record.bytes} bytes)`);
-  return { id, url: canonicalUrl(record), title };
+  writeFileSync(join(folder, `${id}.json`), JSON.stringify(record));
+  console.log(`[uploads] stored ${slug}/${id}.${ext} (${record.bytes} bytes)`);
+  return { id, url: canonicalUrl(record), title, playlist, playlistSlug: slug };
 }
 
 export function resolveUploadTrack(raw: string): TrackRef {
   const parsed = mediaIdFromUrl(raw);
   if (!parsed) throw new Error("Upload an mp3, m4a, wav, or aac file");
-  const record = readRecord(parsed.id);
+  const record = readRecord(parsed.playlistSlug, parsed.id);
   if (!record || record.ext !== parsed.ext || !existsSync(audioPath(record))) {
     throw new Error("That upload is no longer available");
   }
@@ -250,16 +283,23 @@ export function resolveUploadStreamUrl(raw: string): string {
   return resolveUploadTrack(raw).url;
 }
 
-function fileMtime(name: string): number {
+function fileMtime(path: string): number {
   try {
-    return statSync(join(settings.dir, name)).mtimeMs;
+    return statSync(path).mtimeMs;
   } catch {
     return 0;
   }
 }
 
+function removeEmptyPlaylist(slug: string) {
+  try {
+    rmdirSync(join(settings.dir, slug));
+  } catch {
+    // still holding tracks, or already gone
+  }
+}
+
 export function sweepUploads(now: number, liveUrls: Iterable<string>): number {
-  if (!existsSync(settings.dir)) return 0;
   const live = new Set<string>();
   for (const url of liveUrls) {
     const parsed = mediaIdFromUrl(url);
@@ -267,29 +307,34 @@ export function sweepUploads(now: number, liveUrls: Iterable<string>): number {
   }
 
   const removed = new Set<string>();
-  for (const name of readdirSync(settings.dir)) {
-    const audio = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(?:json|mp3|m4a|wav|aac)$/i.exec(name);
-    const tmp = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.upload\.tmp$/i.exec(name);
-    const match = audio ?? tmp;
-    if (!match) continue;
-    const id = match[1].toLowerCase();
-    if (live.has(id)) continue;
-    const record = readRecord(id);
-    const createdAt = record?.createdAt ?? fileMtime(name);
-    if (createdAt + settings.graceMs > now) continue;
-    if (record) unlinkQuiet(audioPath(record));
-    unlinkQuiet(join(settings.dir, `${id}.json`));
-    unlinkQuiet(join(settings.dir, `${id}.upload.tmp`));
-    removed.add(id);
+  for (const slug of playlistDirs()) {
+    const folder = join(settings.dir, slug);
+    for (const name of readdirSync(folder)) {
+      const audio = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(?:json|mp3|m4a|wav|aac)$/i.exec(name);
+      const tmp = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.upload\.tmp$/i.exec(name);
+      const match = audio ?? tmp;
+      if (!match) continue;
+      const id = match[1].toLowerCase();
+      if (live.has(id) || removed.has(`${slug}/${id}`)) continue;
+      const record = readRecord(slug, id);
+      const createdAt = record?.createdAt ?? fileMtime(join(folder, name));
+      if (createdAt + settings.graceMs > now) continue;
+      if (record) unlinkQuiet(audioPath(record));
+      for (const ext of AUDIO_EXTS) unlinkQuiet(join(folder, `${id}.${ext}`));
+      unlinkQuiet(join(folder, `${id}.json`));
+      unlinkQuiet(join(folder, `${id}.upload.tmp`));
+      removed.add(`${slug}/${id}`);
+    }
+    removeEmptyPlaylist(slug);
   }
   if (removed.size > 0) console.log(`[uploads] removed ${removed.size} unused file(s)`);
   return removed.size;
 }
 
-export function mediaResponse(name: string, request: Request): Response | null {
-  const parsed = mediaIdFromUrl(`/media/${name}`);
+export function mediaResponse(playlist: string, name: string, request: Request): Response | null {
+  const parsed = mediaIdFromUrl(`/media/${playlist}/${name}`);
   if (!parsed) return null;
-  const record = readRecord(parsed.id);
+  const record = readRecord(parsed.playlistSlug, parsed.id);
   if (!record || record.ext !== parsed.ext) return null;
   const path = audioPath(record);
   if (!existsSync(path)) return null;
@@ -374,9 +419,16 @@ export function createMediaRoutes(authConfig: AuthConfig, now: () => number = Da
 
     const file = body.file;
     if (!(file instanceof File)) return jsonError("Choose an audio file", 400);
+    if (!playlistSlug(body.playlist)) return jsonError(PLAYLIST_REQUIRED, 400);
 
     try {
-      const saved = await saveUpload({ file, title: body.title, uploadedBy: email, now: now() });
+      const saved = await saveUpload({
+        file,
+        title: body.title,
+        playlist: body.playlist,
+        uploadedBy: email,
+        now: now(),
+      });
       return c.json(saved, 201);
     } catch (err) {
       if (err instanceof UploadError) return jsonError(err.message, err.status);
@@ -385,8 +437,8 @@ export function createMediaRoutes(authConfig: AuthConfig, now: () => number = Da
     }
   });
 
-  routes.on(["GET", "HEAD"], "/media/:name", (c) => {
-    const response = mediaResponse(c.req.param("name"), c.req.raw);
+  routes.on(["GET", "HEAD"], "/media/:playlist/:name", (c) => {
+    const response = mediaResponse(c.req.param("playlist"), c.req.param("name"), c.req.raw);
     if (!response) return c.notFound();
     if (c.req.method === "HEAD") return new Response(null, { status: response.status, headers: response.headers });
     return response;

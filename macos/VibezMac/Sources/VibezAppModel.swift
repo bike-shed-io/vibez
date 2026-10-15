@@ -4,6 +4,14 @@ import AVFoundation
 import Foundation
 import UniformTypeIdentifiers
 
+struct PendingUploadTrack: Identifiable, Equatable {
+  let id: UUID
+  let url: URL
+  var title: String
+  let filename: String
+  let hasAccess: Bool
+}
+
 struct QueueItem: Identifiable, Equatable {
   let id: String
   let url: String
@@ -37,6 +45,7 @@ final class VibezAppModel: NSObject, ObservableObject {
   private static let djNameKey = "vibez.macos.djName"
   private static let roomNameKey = "vibez.macos.roomName"
   private static let trustedEmailsKey = "vibez.macos.trustedEmails"
+  private static let uploadPlaylistKey = "vibez.macos.uploadPlaylist"
   static let joinSoundKey = "vibez.macos.joinSound"
 
   @Published private(set) var configuration: VibezConfiguration?
@@ -92,11 +101,17 @@ final class VibezAppModel: NSObject, ObservableObject {
     return listenerName
   }
   @Published var queueDraftURL = ""
-  @Published var pendingUploadTitle = ""
-  @Published private(set) var pendingUploadFilename: String?
+  @Published var uploadPlaylist: String {
+    didSet { defaults.set(uploadPlaylist, forKey: Self.uploadPlaylistKey) }
+  }
+  @Published var pendingUploads: [PendingUploadTrack] = []
   @Published private(set) var isUploadingAudio = false
-  private var pendingUploadFileURL: URL?
-  private var pendingUploadHasAccess = false
+  @Published private(set) var uploadProgress = ""
+  private var uploadGeneration = 0
+
+  var uploadQueueLabel: String {
+    pendingUploads.count == 1 ? "Queue 1 track" : "Queue \(pendingUploads.count) tracks"
+  }
   @Published var vibezLevel: Double = 0 {
     didSet {
       if vibezLevel < -1 || vibezLevel > 1 || !vibezLevel.isFinite {
@@ -150,6 +165,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     self.djName = defaults.string(forKey: Self.djNameKey) ?? ""
     self.roomName = defaults.string(forKey: Self.roomNameKey) ?? ""
     self.trustedEmails = defaults.stringArray(forKey: Self.trustedEmailsKey) ?? []
+    self.uploadPlaylist = defaults.string(forKey: Self.uploadPlaylistKey) ?? ""
     super.init()
     configurePlayer()
     loadPersistedConfiguration()
@@ -426,70 +442,105 @@ final class VibezAppModel: NSObject, ObservableObject {
     let panel = NSOpenPanel()
     panel.canChooseFiles = true
     panel.canChooseDirectories = false
-    panel.allowsMultipleSelection = false
+    panel.allowsMultipleSelection = true
     var audioTypes: [UTType] = [.mp3, .mpeg4Audio, .wav]
     if let aac = UTType(filenameExtension: "aac") { audioTypes.append(aac) }
     panel.allowedContentTypes = audioTypes
-    panel.prompt = "Upload"
-    panel.message = "Choose an mp3, m4a, wav, or aac file"
+    panel.prompt = "Add"
+    panel.message = "Choose mp3, m4a, wav, or aac files for this playlist"
     NSApp.activate()
-    guard panel.runModal() == .OK, let url = panel.url else { return }
-    stageUpload(url)
+    guard panel.runModal() == .OK else { return }
+    for url in panel.urls {
+      stageUpload(url)
+    }
+  }
+
+  func removePendingUpload(id: UUID) {
+    guard !isUploadingAudio, let index = pendingUploads.firstIndex(where: { $0.id == id }) else { return }
+    releasePendingUpload(pendingUploads[index])
+    pendingUploads.remove(at: index)
   }
 
   func cancelPendingUpload() {
-    releasePendingUploadAccess()
-    pendingUploadFileURL = nil
-    pendingUploadFilename = nil
-    pendingUploadTitle = ""
+    uploadGeneration += 1
+    for track in pendingUploads {
+      releasePendingUpload(track)
+    }
+    pendingUploads = []
+    uploadProgress = ""
+    isUploadingAudio = false
   }
 
   func uploadPendingAudio() async {
     guard !isUploadingAudio else { return }
-    guard let fileURL = pendingUploadFileURL, let serverURL = configuration?.serverURL, let channelId = currentChannel?.id else {
+    let playlist = uploadPlaylist.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !playlist.isEmpty else {
+      errorMessage = "Name the playlist these tracks belong to."
       return
     }
+    guard let serverURL = configuration?.serverURL, let channelId = currentChannel?.id else { return }
     guard let token = SessionTokenStore.load() else {
       errorMessage = "Sign in to upload tracks."
       return
     }
+    let batch = pendingUploads
+    guard !batch.isEmpty else { return }
+    let generation = uploadGeneration
     isUploadingAudio = true
-    defer { isUploadingAudio = false }
     errorMessage = nil
-    do {
-      let uploaded = try await postMedia(
-        fileURL: fileURL,
-        serverURL: serverURL,
-        token: token,
-        channelId: channelId,
-        title: pendingUploadTitle
-      )
-      send(["type": "queue:add", "url": uploaded.url])
-      cancelPendingUpload()
-    } catch {
-      errorMessage = error.localizedDescription
+    defer {
+      if generation == uploadGeneration {
+        isUploadingAudio = false
+        uploadProgress = ""
+      }
+    }
+    for (offset, track) in batch.enumerated() {
+      if generation != uploadGeneration { return }
+      uploadProgress = "Uploading \(offset + 1) of \(batch.count)…"
+      do {
+        let uploaded = try await postMedia(
+          fileURL: track.url,
+          serverURL: serverURL,
+          token: token,
+          channelId: channelId,
+          playlist: playlist,
+          title: track.title
+        )
+        if generation != uploadGeneration { return }
+        send(["type": "queue:add", "url": uploaded.url])
+        if let index = pendingUploads.firstIndex(where: { $0.id == track.id }) {
+          releasePendingUpload(pendingUploads[index])
+          pendingUploads.remove(at: index)
+        }
+      } catch {
+        if generation != uploadGeneration { return }
+        errorMessage = error.localizedDescription
+        return
+      }
     }
   }
 
   private func stageUpload(_ url: URL) {
-    releasePendingUploadAccess()
-    pendingUploadHasAccess = url.startAccessingSecurityScopedResource()
-    pendingUploadFileURL = url
-    pendingUploadFilename = url.lastPathComponent
+    if pendingUploads.contains(where: { $0.url.path == url.path }) { return }
     let stem = url.deletingPathExtension().lastPathComponent
       .replacingOccurrences(of: "_", with: " ")
       .trimmingCharacters(in: .whitespacesAndNewlines)
-    pendingUploadTitle = stem
+    pendingUploads.append(PendingUploadTrack(
+      id: UUID(),
+      url: url,
+      title: stem,
+      filename: url.lastPathComponent,
+      hasAccess: url.startAccessingSecurityScopedResource()
+    ))
   }
 
-  private func releasePendingUploadAccess() {
-    if pendingUploadHasAccess {
-      pendingUploadFileURL?.stopAccessingSecurityScopedResource()
+  private func releasePendingUpload(_ track: PendingUploadTrack) {
+    if track.hasAccess {
+      track.url.stopAccessingSecurityScopedResource()
     }
-    pendingUploadHasAccess = false
   }
 
-  private func postMedia(fileURL: URL, serverURL: URL, token: String, channelId: String, title: String) async throws -> UploadedMedia {
+  private func postMedia(fileURL: URL, serverURL: URL, token: String, channelId: String, playlist: String, title: String) async throws -> UploadedMedia {
     let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
     if size <= 0 { throw MediaUploadError.failed("That file is empty.") }
     if size > 50 * 1024 * 1024 { throw MediaUploadError.failed("File is too large (max 50 MB).") }
@@ -505,6 +556,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     request.httpBody = multipartBody(
       boundary: boundary,
       channelId: channelId,
+      playlist: playlist,
       title: title,
       filename: uploadFilename(for: fileURL),
       mime: uploadMIME(for: fileURL),
@@ -523,18 +575,23 @@ final class VibezAppModel: NSObject, ObservableObject {
     return uploaded
   }
 
-  private func multipartBody(boundary: String, channelId: String, title: String, filename: String, mime: String, fileData: Data) -> Data {
+  private func multipartBody(boundary: String, channelId: String, playlist: String, title: String, filename: String, mime: String, fileData: Data) -> Data {
     var body = Data()
     func append(_ string: String) {
       body.append(Data(string.utf8))
     }
+    func safe(_ value: String) -> String {
+      value.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+    }
     append("--\(boundary)\r\n")
     append("Content-Disposition: form-data; name=\"channelId\"\r\n\r\n")
     append("\(channelId)\r\n")
-    let safeTitle = title.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
+    append("--\(boundary)\r\n")
+    append("Content-Disposition: form-data; name=\"playlist\"\r\n\r\n")
+    append("\(safe(playlist))\r\n")
     append("--\(boundary)\r\n")
     append("Content-Disposition: form-data; name=\"title\"\r\n\r\n")
-    append("\(safeTitle)\r\n")
+    append("\(safe(title))\r\n")
     append("--\(boundary)\r\n")
     append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
     append("Content-Type: \(mime)\r\n\r\n")
@@ -734,6 +791,7 @@ final class VibezAppModel: NSObject, ObservableObject {
             let roles = decode(ChannelRoles.self, from: message["roles"]) else { return }
       currentChannel = channel
       self.roles = roles
+      if roles.canQueue == false { cancelPendingUpload() }
       joinSoundQuietUntil = Date().addingTimeInterval(10)
       applyChannelState(message)
     case "channel:update":
@@ -741,6 +799,7 @@ final class VibezAppModel: NSObject, ObservableObject {
             let roles = decode(ChannelRoles.self, from: message["roles"]) else { return }
       currentChannel = channel
       self.roles = roles
+      if roles.canQueue == false { cancelPendingUpload() }
       if let noticeText = message["notice"] as? String {
         notice = noticeText
       }

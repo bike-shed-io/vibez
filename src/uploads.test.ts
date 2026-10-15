@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -7,7 +7,7 @@ import { serveStatic } from "hono/bun";
 import { createSessionToken, loadAuthConfig, SESSION_COOKIE } from "./auth";
 import { channels } from "./channels";
 import { flushDirectory, handleClose, handleMessage, handleOpen } from "./ws";
-import { createMediaRoutes, configureUploads, resetUploadSettings, sweepUploads } from "./uploads";
+import { createMediaRoutes, configureUploads, playlistSlug, resetUploadSettings, sweepUploads } from "./uploads";
 
 const SECRET = "test-secret";
 const ORIGIN = "http://radio.test";
@@ -86,13 +86,14 @@ function audioFile(name: string, kind: "mp3" | "m4a" | "wav" | "aac", type: stri
 
 async function postMedia(
   token: string | null,
-  fields: { file?: File; channelId?: string; title?: string },
+  fields: { file?: File; channelId?: string; title?: string; playlist?: string | null },
   auth: "cookie" | "bearer" = "cookie",
 ) {
   const body = new FormData();
   if (fields.file) body.set("file", fields.file);
   if (fields.channelId !== undefined) body.set("channelId", fields.channelId);
   if (fields.title !== undefined) body.set("title", fields.title);
+  if (fields.playlist !== null) body.set("playlist", fields.playlist ?? "Friday Suno");
   const headers: Record<string, string> = {};
   if (token && auth === "cookie") headers.cookie = `${SESSION_COOKIE}=${token}`;
   if (token && auth === "bearer") headers.authorization = `Bearer ${token}`;
@@ -134,10 +135,12 @@ describe("audio upload", () => {
       title: "  Night Drive  ",
     });
     expect(res.status).toBe(201);
-    const saved = await res.json() as { id: string; url: string; title: string };
+    const saved = await res.json() as { id: string; url: string; title: string; playlist: string; playlistSlug: string };
     expect(saved.title).toBe("Night Drive");
-    expect(saved.url).toBe(`${ORIGIN}/media/${saved.id}.mp3`);
-    expect(existsSync(join(dir, `${saved.id}.mp3`))).toBe(true);
+    expect(saved.playlist).toBe("Friday Suno");
+    expect(saved.playlistSlug).toBe("friday-suno");
+    expect(saved.url).toBe(`${ORIGIN}/media/${saved.playlistSlug}/${saved.id}.mp3`);
+    expect(existsSync(join(dir, saved.playlistSlug, `${saved.id}.mp3`))).toBe(true);
 
     const audio = await app().request(new URL(saved.url).pathname);
     expect(audio.status).toBe(200);
@@ -155,7 +158,7 @@ describe("audio upload", () => {
     expect(partial.headers.get("content-range")).toBe("bytes 0-3/32");
     expect([...new Uint8Array(await partial.arrayBuffer())]).toEqual([...new Uint8Array(bytes("mp3"))].slice(0, 4));
 
-    await send(pat, { type: "queue:add", url: `https://evil.test/media/${saved.id}.mp3` });
+    await send(pat, { type: "queue:add", url: `https://evil.test/media/${saved.playlistSlug}/${saved.id}.mp3` });
     expect(last(pat, "queue").items).toEqual([
       expect.objectContaining({ url: saved.url, title: "Night Drive", addedBy: "DJ Pat" }),
     ]);
@@ -297,7 +300,7 @@ describe("audio upload", () => {
     const account = user("pat@example.com", "Pat");
     const pat = await connect("pat", "Pat", account);
     const id = await goLive(pat);
-    const missing = `${ORIGIN}/media/00000000-0000-4000-8000-000000000001.mp3`;
+    const missing = `${ORIGIN}/media/friday-suno/00000000-0000-4000-8000-000000000001.mp3`;
     await send(pat, { type: "queue:add", url: missing });
     expect(pat.sent).toEqual([{ type: "error", message: "That upload is no longer available" }]);
     expect(channels.get(id)?.queue).toEqual([]);
@@ -306,11 +309,13 @@ describe("audio upload", () => {
       file: audioFile("song.mp3", "mp3", "audio/mpeg"),
       channelId: id,
     });
-    const saved = await res.json() as { id: string };
-    expect((await app().request(`/media/${saved.id}.wav`)).status).toBe(404);
-    expect((await app().request("/media/not-a-uuid.mp3")).status).toBe(404);
-    expect((await app().request("/media/%2e%2e%2fpasswd")).status).toBe(404);
-    const past = await app().request(`/media/${saved.id}.mp3`, { headers: { range: "bytes=100-120" } });
+    const saved = await res.json() as { id: string; playlistSlug: string };
+    expect((await app().request(`/media/${saved.playlistSlug}/${saved.id}.wav`)).status).toBe(404);
+    expect((await app().request(`/media/other-set/${saved.id}.mp3`)).status).toBe(404);
+    expect((await app().request(`/media/${saved.id}.mp3`)).status).toBe(404);
+    expect((await app().request("/media/friday-suno/not-a-uuid.mp3")).status).toBe(404);
+    expect((await app().request("/media/%2e%2e/%2e%2e/passwd")).status).toBe(404);
+    const past = await app().request(`/media/${saved.playlistSlug}/${saved.id}.mp3`, { headers: { range: "bytes=100-120" } });
     expect(past.status).toBe(416);
   });
 
@@ -335,17 +340,84 @@ describe("audio upload", () => {
     });
     const abandonedBody = await abandoned.json() as { id: string; url: string };
 
+    writeFileSync(join(dir, "keep.txt"), "leave unexpected files alone");
     expect(sweepUploads(now, [queuedBody.url])).toBe(0);
-    expect(existsSync(join(dir, `${queuedBody.id}.mp3`))).toBe(true);
-    expect(existsSync(join(dir, `${abandonedBody.id}.mp3`))).toBe(true);
+    expect(existsSync(join(dir, "friday-suno", `${queuedBody.id}.mp3`))).toBe(true);
+    expect(existsSync(join(dir, "friday-suno", `${abandonedBody.id}.mp3`))).toBe(true);
 
     expect(sweepUploads(now + 1_001, [queuedBody.url])).toBe(1);
-    expect(existsSync(join(dir, `${queuedBody.id}.mp3`))).toBe(true);
-    expect(existsSync(join(dir, `${queuedBody.id}.json`))).toBe(true);
-    expect(existsSync(join(dir, `${abandonedBody.id}.mp3`))).toBe(false);
-    expect(existsSync(join(dir, `${abandonedBody.id}.json`))).toBe(false);
+    expect(existsSync(join(dir, "friday-suno", `${queuedBody.id}.mp3`))).toBe(true);
+    expect(existsSync(join(dir, "friday-suno", `${queuedBody.id}.json`))).toBe(true);
+    expect(existsSync(join(dir, "friday-suno", `${abandonedBody.id}.mp3`))).toBe(false);
+    expect(existsSync(join(dir, "friday-suno", `${abandonedBody.id}.json`))).toBe(false);
+    expect(existsSync(join(dir, "keep.txt"))).toBe(true);
 
     expect(sweepUploads(now + 1_001, [])).toBe(1);
-    expect(existsSync(join(dir, `${queuedBody.id}.mp3`))).toBe(false);
+    expect(existsSync(join(dir, "friday-suno", `${queuedBody.id}.mp3`))).toBe(false);
+    expect(existsSync(join(dir, "friday-suno"))).toBe(false);
+    expect(existsSync(join(dir, "keep.txt"))).toBe(true);
+  });
+
+  test("a playlist is a folder, and a bad name is refused", async () => {
+    expect(playlistSlug("Friday Suno")).toBe("friday-suno");
+    expect(playlistSlug("  Café   Hour  ")).toBe("cafe-hour");
+    expect(playlistSlug("../../etc/passwd")).toBe("etc-passwd");
+    expect(playlistSlug("!!!")).toBe(null);
+    expect(playlistSlug("")).toBe(null);
+    expect(playlistSlug("a".repeat(80))).toBe("a".repeat(40));
+
+    const account = user("pat@example.com", "Pat");
+    const pat = await connect("pat", "Pat", account);
+    const id = await goLive(pat);
+    const token = tokenFor(account);
+
+    const first = await postMedia(token, { file: audioFile("one.mp3", "mp3", "audio/mpeg"), channelId: id });
+    const second = await postMedia(token, { file: audioFile("two.mp3", "mp3", "audio/mpeg"), channelId: id, playlist: "Friday   Suno" });
+    const firstBody = await first.json() as { id: string; playlistSlug: string };
+    const secondBody = await second.json() as { id: string; playlist: string; playlistSlug: string };
+    expect(firstBody.playlistSlug).toBe("friday-suno");
+    expect(secondBody.playlist).toBe("Friday Suno");
+    expect(secondBody.playlistSlug).toBe(firstBody.playlistSlug);
+    expect(existsSync(join(dir, "friday-suno", `${firstBody.id}.mp3`))).toBe(true);
+    expect(existsSync(join(dir, "friday-suno", `${secondBody.id}.mp3`))).toBe(true);
+
+    const slipped = await postMedia(token, {
+      file: audioFile("four.mp3", "mp3", "audio/mpeg"),
+      channelId: id,
+      playlist: "../../etc/passwd",
+    });
+    expect(slipped.status).toBe(201);
+    const slippedBody = await slipped.json() as { id: string; playlist: string; playlistSlug: string };
+    expect(slippedBody.playlist).toBe("../../etc/passwd");
+    expect(slippedBody.playlistSlug).toBe("etc-passwd");
+    const stored = realpathSync(join(dir, "etc-passwd", `${slippedBody.id}.mp3`));
+    expect(stored.startsWith(`${realpathSync(dir)}/`)).toBe(true);
+
+    const blank = await postMedia(token, { file: audioFile("five.mp3", "mp3", "audio/mpeg"), channelId: id, playlist: null });
+    expect(blank.status).toBe(400);
+    expect((await blank.json()).error).toBe("Name the playlist these tracks belong to");
+    const marks = await postMedia(token, { file: audioFile("six.mp3", "mp3", "audio/mpeg"), channelId: id, playlist: "!!!" });
+    expect(marks.status).toBe(400);
+    expect((await marks.json()).error).toBe("Name the playlist these tracks belong to");
+
+    expect((await app().request(`/media/${firstBody.id}.mp3`)).status).toBe(404);
+
+    configureUploads({ graceMs: 1_000 });
+    now += 5_000;
+    const other = await postMedia(token, {
+      file: audioFile("three.mp3", "mp3", "audio/mpeg"),
+      channelId: id,
+      playlist: "Late Night",
+    });
+    const otherBody = await other.json() as { id: string; playlistSlug: string };
+    expect(otherBody.playlistSlug).toBe("late-night");
+    expect((await app().request(`/media/friday-suno/${otherBody.id}.mp3`)).status).toBe(404);
+
+    expect(sweepUploads(now, [])).toBe(3);
+    expect(existsSync(join(dir, "friday-suno"))).toBe(false);
+    expect(existsSync(join(dir, "etc-passwd"))).toBe(false);
+    expect(existsSync(join(dir, "late-night", `${otherBody.id}.mp3`))).toBe(true);
+    expect(sweepUploads(now + 1_001, [])).toBe(1);
+    expect(existsSync(join(dir, "late-night"))).toBe(false);
   });
 });

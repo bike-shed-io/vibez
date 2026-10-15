@@ -260,23 +260,46 @@ struct NowPlayingView: View {
         }
         .disabled(!appModel.isRoomConnected)
 
-        Button("Upload audio…") { appModel.chooseAudioFile() }
-          .disabled(!appModel.isRoomConnected || appModel.isUploadingAudio)
-        Text("mp3, m4a, wav, or aac, up to 50 MB. New Suno songs: download the mp3, then upload it.")
+        TextField("Playlist", text: $appModel.uploadPlaylist, prompt: Text("Friday Suno"))
+          .textFieldStyle(.roundedBorder)
+          .disabled(appModel.isUploadingAudio)
+        Text("Groups this batch in one folder. Download Suno mp3s, then add them here.")
           .font(.caption2)
           .foregroundStyle(.secondary)
 
-        if let filename = appModel.pendingUploadFilename {
+        Button("Upload audio…") { appModel.chooseAudioFile() }
+          .disabled(!appModel.isRoomConnected || appModel.isUploadingAudio)
+        Text("mp3, m4a, wav, or aac, up to 50 MB each.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+
+        if !appModel.pendingUploads.isEmpty {
           VStack(alignment: .leading, spacing: 6) {
-            Text(filename).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            ForEach($appModel.pendingUploads) { $track in
+              VStack(alignment: .leading, spacing: 4) {
+                Text(track.filename)
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+                HStack(spacing: 6) {
+                  TextField("Track title", text: $track.title)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(appModel.isUploadingAudio)
+                  Button("Remove") { appModel.removePendingUpload(id: track.id) }
+                    .disabled(appModel.isUploadingAudio)
+                }
+              }
+            }
             HStack(spacing: 6) {
-              TextField("Track title", text: $appModel.pendingUploadTitle)
-                .textFieldStyle(.roundedBorder)
-              Button(appModel.isUploadingAudio ? "Uploading…" : "Queue") {
+              Button(appModel.isUploadingAudio ? appModel.uploadProgress : appModel.uploadQueueLabel) {
                 Task { await appModel.uploadPendingAudio() }
               }
               .buttonStyle(.borderedProminent)
-              .disabled(appModel.isUploadingAudio)
+              .disabled(
+                appModel.isUploadingAudio
+                  || !appModel.isRoomConnected
+                  || appModel.uploadPlaylist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              )
               Button("Cancel") { appModel.cancelPendingUpload() }
                 .disabled(appModel.isUploadingAudio)
             }

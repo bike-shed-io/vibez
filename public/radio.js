@@ -101,9 +101,12 @@
   const queueUrlInput = $("queueUrlInput");
   const queueAddBtn = $("queueAddBtn");
   const queueUploadBtn = $("queueUploadBtn");
+  const queueUploadPanel = $("queueUploadPanel");
+  const queueUploadPlaylist = $("queueUploadPlaylist");
+  const queueUploadFolder = $("queueUploadFolder");
+  const queueDrop = $("queueDrop");
   const queueFileInput = $("queueFileInput");
-  const queueUploadRow = $("queueUploadRow");
-  const queueUploadTitle = $("queueUploadTitle");
+  const queueUploadFiles = $("queueUploadFiles");
   const queueUploadConfirm = $("queueUploadConfirm");
   const queueUploadCancel = $("queueUploadCancel");
   const queueDjControls = $("queueDjControls");
@@ -457,17 +460,106 @@
   });
 
   // The server decides who may queue (roles.canQueue); this only mirrors it.
-  let pendingUpload = null;
+  const UPLOAD_PLAYLIST_KEY = "vibez:upload-playlist";
+  let pendingFiles = [];
   let uploadGeneration = 0;
+  let uploading = false;
+  let dropDepth = 0;
+
+  function playlistFolder(value) {
+    const display = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+    if (!display) return "";
+    const folded = display.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+    let slug = folded.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (slug.length > 40) slug = slug.slice(0, 40).replace(/-+$/g, "");
+    return /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/.test(slug) ? slug : "";
+  }
+
+  function titleFromFile(file) {
+    return file.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  function rememberPlaylist() {
+    localStorage.setItem(UPLOAD_PLAYLIST_KEY, queueUploadPlaylist.value);
+  }
+
+  function refreshPlaylistFolder() {
+    const slug = playlistFolder(queueUploadPlaylist.value);
+    const typed = queueUploadPlaylist.value.trim();
+    queueUploadFolder.textContent = slug
+      ? `Folder: ${slug}`
+      : typed
+        ? "Use letters or numbers in the playlist name."
+        : "Tracks are stored together under this name.";
+  }
+
+  function uploadConfirmLabel() {
+    const count = pendingFiles.length;
+    if (count === 0) return "Queue tracks";
+    if (count === 1) return "Queue 1 track";
+    return `Queue ${count} tracks`;
+  }
+
+  function updateUploadConfirm() {
+    const ready = !!playlistFolder(queueUploadPlaylist.value) && pendingFiles.length > 0 && !uploading;
+    queueUploadConfirm.disabled = !ready;
+    if (!uploading) queueUploadConfirm.textContent = uploadConfirmLabel();
+  }
+
+  function renderUploadFiles() {
+    queueUploadFiles.replaceChildren();
+    for (const item of pendingFiles) {
+      const row = document.createElement("li");
+      row.className = "queue-upload-file";
+      const title = document.createElement("input");
+      title.type = "text";
+      title.maxLength = 200;
+      title.value = item.title;
+      title.placeholder = "Track title";
+      title.disabled = uploading;
+      title.addEventListener("input", () => {
+        item.title = title.value;
+      });
+      const name = document.createElement("span");
+      name.className = "queue-upload-filename";
+      name.textContent = item.file.name;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "btn-small btn-secondary queue-upload-remove";
+      remove.textContent = "Remove";
+      remove.disabled = uploading;
+      remove.addEventListener("click", () => {
+        if (uploading) return;
+        pendingFiles = pendingFiles.filter((row) => row.id !== item.id);
+        renderUploadFiles();
+      });
+      row.append(title, remove, name);
+      queueUploadFiles.append(row);
+    }
+    updateUploadConfirm();
+  }
+
+  function addUploadFiles(fileList) {
+    if (uploading) return;
+    const incoming = [...fileList];
+    const accepted = incoming.filter((file) => /\.(mp3|m4a|wav|aac)$/i.test(file.name));
+    if (accepted.length !== incoming.length) showError("Upload an mp3, m4a, wav, or aac file");
+    for (const file of accepted) {
+      pendingFiles.push({ id: crypto.randomUUID(), file, title: titleFromFile(file) });
+    }
+    queueFileInput.value = "";
+    if (accepted.length) renderUploadFiles();
+  }
 
   function clearPendingUpload() {
     uploadGeneration++;
-    pendingUpload = null;
+    uploading = false;
+    pendingFiles = [];
+    dropDepth = 0;
     queueFileInput.value = "";
-    queueUploadTitle.value = "";
-    queueUploadRow.classList.add("hidden");
-    queueUploadConfirm.disabled = false;
-    queueUploadConfirm.textContent = "Queue";
+    queueDrop.classList.remove("drag-over");
+    queueUploadPanel.classList.add("hidden");
+    renderUploadFiles();
   }
 
   function renderQueueAccess() {
@@ -945,47 +1037,107 @@
     if (e.key === "Enter") queueAddBtn.click();
   });
 
-  queueUploadBtn.addEventListener("click", () => queueFileInput.click());
+  queueUploadPlaylist.value = localStorage.getItem(UPLOAD_PLAYLIST_KEY) || "";
+  refreshPlaylistFolder();
 
-  queueFileInput.addEventListener("change", () => {
-    const file = queueFileInput.files && queueFileInput.files[0];
-    if (!file || !currentChannel) return;
-    pendingUpload = file;
-    queueUploadTitle.value = file.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").trim();
-    queueUploadRow.classList.remove("hidden");
-    queueUploadTitle.focus();
+  queueUploadBtn.addEventListener("click", () => {
+    if (queueUploadBtn.disabled) return;
+    queueUploadPanel.classList.remove("hidden");
+    queueUploadPlaylist.focus();
   });
 
-  queueUploadCancel.addEventListener("click", clearPendingUpload);
+  queueUploadPlaylist.addEventListener("input", () => {
+    rememberPlaylist();
+    refreshPlaylistFolder();
+    updateUploadConfirm();
+  });
 
-  queueUploadTitle.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") queueUploadConfirm.click();
+  function openFilePicker() {
+    if (uploading || queueUploadBtn.disabled) return;
+    queueFileInput.click();
+  }
+
+  queueDrop.addEventListener("click", openFilePicker);
+  queueDrop.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openFilePicker();
+    }
+  });
+
+  queueFileInput.addEventListener("change", () => {
+    if (queueFileInput.files) addUploadFiles(queueFileInput.files);
+  });
+
+  queueDrop.addEventListener("dragenter", (event) => {
+    event.preventDefault();
+    if (uploading) return;
+    dropDepth++;
+    queueDrop.classList.add("drag-over");
+  });
+
+  queueDrop.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = uploading ? "none" : "copy";
+  });
+
+  queueDrop.addEventListener("dragleave", () => {
+    dropDepth = Math.max(0, dropDepth - 1);
+    if (dropDepth === 0) queueDrop.classList.remove("drag-over");
+  });
+
+  queueDrop.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropDepth = 0;
+    queueDrop.classList.remove("drag-over");
+    if (event.dataTransfer) addUploadFiles(event.dataTransfer.files);
+  });
+
+  queueUploadCancel.addEventListener("click", () => {
+    if (uploading) clearPendingUpload();
+    else {
+      pendingFiles = [];
+      renderUploadFiles();
+      queueUploadPanel.classList.add("hidden");
+    }
   });
 
   queueUploadConfirm.addEventListener("click", async () => {
-    const file = pendingUpload;
-    if (!file || !currentChannel || !ws || queueUploadConfirm.disabled) return;
+    if (queueUploadConfirm.disabled || !currentChannel || !ws || uploading) return;
+    const playlist = queueUploadPlaylist.value.trim();
     const generation = uploadGeneration;
-    const title = queueUploadTitle.value.trim();
+    const batch = pendingFiles.slice();
+    uploading = true;
     queueUploadConfirm.disabled = true;
-    queueUploadConfirm.textContent = "Uploading…";
     try {
-      const body = new FormData();
-      body.append("file", file);
-      body.append("channelId", currentChannel.id);
-      if (title) body.append("title", title);
-      const res = await fetch("/media", { method: "POST", body, credentials: "same-origin" });
-      const data = await res.json().catch(() => ({}));
-      if (generation !== uploadGeneration) return;
-      if (!res.ok) throw new Error(data.error || "Upload failed");
-      ws.send(JSON.stringify({ type: "queue:add", url: data.url }));
-      clearPendingUpload();
+      for (let index = 0; index < batch.length; index++) {
+        if (generation !== uploadGeneration) return;
+        const item = batch[index];
+        queueUploadConfirm.textContent = `Uploading ${index + 1} of ${batch.length}…`;
+        const body = new FormData();
+        body.append("file", item.file);
+        body.append("channelId", currentChannel.id);
+        body.append("playlist", playlist);
+        if (item.title.trim()) body.append("title", item.title.trim());
+        const res = await fetch("/media", { method: "POST", body, credentials: "same-origin" });
+        const data = await res.json().catch(() => ({}));
+        if (generation !== uploadGeneration) return;
+        if (!res.ok) throw new Error(data.error || "Upload failed");
+        ws.send(JSON.stringify({ type: "queue:add", url: data.url }));
+        pendingFiles = pendingFiles.filter((row) => row.id !== item.id);
+        renderUploadFiles();
+      }
     } catch (err) {
       if (generation !== uploadGeneration) return;
-      queueUploadConfirm.disabled = false;
-      queueUploadConfirm.textContent = "Queue";
+      uploading = false;
+      renderUploadFiles();
       showError(err.message || "Upload failed");
+      return;
     }
+    if (generation !== uploadGeneration) return;
+    uploading = false;
+    pendingFiles = [];
+    renderUploadFiles();
   });
 
   skipBtn.addEventListener("click", () => {
