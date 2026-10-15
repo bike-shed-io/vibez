@@ -102,13 +102,15 @@
   const queueAddBtn = $("queueAddBtn");
   const queueUploadBtn = $("queueUploadBtn");
   const queueUploadPanel = $("queueUploadPanel");
-  const queueUploadPlaylist = $("queueUploadPlaylist");
+  const queueUploadEp = $("queueUploadEp");
   const queueUploadFolder = $("queueUploadFolder");
   const queueDrop = $("queueDrop");
   const queueFileInput = $("queueFileInput");
   const queueUploadFiles = $("queueUploadFiles");
   const queueUploadConfirm = $("queueUploadConfirm");
   const queueUploadCancel = $("queueUploadCancel");
+  const epSection = $("epSection");
+  const epList = $("epList");
   const queueDjControls = $("queueDjControls");
   const skipBtn = $("skipBtn");
   const shuffleBtn = $("shuffleBtn");
@@ -305,6 +307,7 @@
     stopHeartbeat();
     clearPlayer();
     clearPendingUpload();
+    renderEps([]);
   }
 
   // --- Player ---
@@ -339,6 +342,7 @@
     if (roles.isActiveDj && !wasDj) startHeartbeat();
     if (!roles.isActiveDj && wasDj) stopHeartbeat();
     renderQueue(queueItems);
+    loadEps();
   }
 
   function showDirectory(message) {
@@ -460,13 +464,14 @@
   });
 
   // The server decides who may queue (roles.canQueue); this only mirrors it.
-  const UPLOAD_PLAYLIST_KEY = "vibez:upload-playlist";
+  const UPLOAD_EP_KEY = "vibez:upload-ep";
   let pendingFiles = [];
   let uploadGeneration = 0;
   let uploading = false;
   let dropDepth = 0;
+  let epLoad = 0;
 
-  function playlistFolder(value) {
+  function epFolder(value) {
     const display = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
     if (!display) return "";
     const folded = display.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
@@ -479,29 +484,29 @@
     return file.name.replace(/\.[^.]+$/, "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
   }
 
-  function rememberPlaylist() {
-    localStorage.setItem(UPLOAD_PLAYLIST_KEY, queueUploadPlaylist.value);
+  function rememberEp() {
+    localStorage.setItem(UPLOAD_EP_KEY, queueUploadEp.value);
   }
 
-  function refreshPlaylistFolder() {
-    const slug = playlistFolder(queueUploadPlaylist.value);
-    const typed = queueUploadPlaylist.value.trim();
+  function refreshEpFolder() {
+    const slug = epFolder(queueUploadEp.value);
+    const typed = queueUploadEp.value.trim();
     queueUploadFolder.textContent = slug
-      ? `Folder: ${slug}`
+      ? `Stored as ${slug}`
       : typed
-        ? "Use letters or numbers in the playlist name."
-        : "Tracks are stored together under this name.";
+        ? "Use letters or numbers in the EP name."
+        : "Songs in a Vibez EP play as one set.";
   }
 
   function uploadConfirmLabel() {
     const count = pendingFiles.length;
-    if (count === 0) return "Queue tracks";
-    if (count === 1) return "Queue 1 track";
-    return `Queue ${count} tracks`;
+    if (count === 0) return "Add songs";
+    if (count === 1) return "Add 1 song";
+    return `Add ${count} songs`;
   }
 
   function updateUploadConfirm() {
-    const ready = !!playlistFolder(queueUploadPlaylist.value) && pendingFiles.length > 0 && !uploading;
+    const ready = !!epFolder(queueUploadEp.value) && pendingFiles.length > 0 && !uploading;
     queueUploadConfirm.disabled = !ready;
     if (!uploading) queueUploadConfirm.textContent = uploadConfirmLabel();
   }
@@ -1037,18 +1042,18 @@
     if (e.key === "Enter") queueAddBtn.click();
   });
 
-  queueUploadPlaylist.value = localStorage.getItem(UPLOAD_PLAYLIST_KEY) || "";
-  refreshPlaylistFolder();
+  queueUploadEp.value = localStorage.getItem(UPLOAD_EP_KEY) || "";
+  refreshEpFolder();
 
   queueUploadBtn.addEventListener("click", () => {
     if (queueUploadBtn.disabled) return;
     queueUploadPanel.classList.remove("hidden");
-    queueUploadPlaylist.focus();
+    queueUploadEp.focus();
   });
 
-  queueUploadPlaylist.addEventListener("input", () => {
-    rememberPlaylist();
-    refreshPlaylistFolder();
+  queueUploadEp.addEventListener("input", () => {
+    rememberEp();
+    refreshEpFolder();
     updateUploadConfirm();
   });
 
@@ -1102,28 +1107,103 @@
     }
   });
 
+  function renderEps(eps) {
+    const allowed = !!currentUser && !!currentChannel && roles.canQueue;
+    epSection.classList.toggle("hidden", !allowed);
+    epList.replaceChildren();
+    if (!allowed) return;
+    if (!eps.length) {
+      const empty = document.createElement("div");
+      empty.className = "queue-empty";
+      empty.textContent = "No Vibez EPs yet. Upload songs to start one.";
+      epList.append(empty);
+      return;
+    }
+    for (const ep of eps) {
+      const block = document.createElement("div");
+      block.className = "ep-block";
+      const head = document.createElement("div");
+      head.className = "ep-head";
+      const name = document.createElement("div");
+      name.className = "ep-name";
+      name.textContent = ep.name;
+      head.append(name);
+      if (roles.isActiveDj) {
+        const play = document.createElement("button");
+        play.type = "button";
+        play.className = "btn-small btn-primary";
+        play.textContent = "Play";
+        play.title = "Shuffle this EP. Skip plays each song once.";
+        play.addEventListener("click", () => {
+          if (ws) ws.send(JSON.stringify({ type: "ep:play", slug: ep.slug }));
+        });
+        head.append(play);
+      }
+      const songs = document.createElement("ul");
+      songs.className = "ep-songs";
+      for (const track of ep.tracks) {
+        const row = document.createElement("li");
+        row.className = "ep-song";
+        const title = document.createElement("span");
+        title.textContent = track.title;
+        row.append(title);
+        if (roles.isActiveDj) {
+          const play = document.createElement("button");
+          play.type = "button";
+          play.className = "btn-small btn-secondary";
+          play.textContent = "Play";
+          play.title = "Play this song, then the rest of the EP in random order";
+          play.addEventListener("click", () => {
+            if (ws) ws.send(JSON.stringify({ type: "ep:play", slug: ep.slug, trackId: track.id }));
+          });
+          row.append(play);
+        }
+        songs.append(row);
+      }
+      block.append(head, songs);
+      epList.append(block);
+    }
+  }
+
+  async function loadEps() {
+    const generation = ++epLoad;
+    if (!currentUser || !currentChannel || !roles.canQueue) {
+      renderEps([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/eps?channelId=${encodeURIComponent(currentChannel.id)}`, { credentials: "same-origin" });
+      const data = await res.json().catch(() => ({}));
+      if (generation !== epLoad) return;
+      renderEps(res.ok && Array.isArray(data.eps) ? data.eps : []);
+    } catch {
+      if (generation === epLoad) renderEps([]);
+    }
+  }
+
   queueUploadConfirm.addEventListener("click", async () => {
     if (queueUploadConfirm.disabled || !currentChannel || !ws || uploading) return;
-    const playlist = queueUploadPlaylist.value.trim();
+    const ep = queueUploadEp.value.trim();
     const generation = uploadGeneration;
     const batch = pendingFiles.slice();
+    let queuedCount = 0;
     uploading = true;
     queueUploadConfirm.disabled = true;
     try {
       for (let index = 0; index < batch.length; index++) {
         if (generation !== uploadGeneration) return;
         const item = batch[index];
-        queueUploadConfirm.textContent = `Uploading ${index + 1} of ${batch.length}…`;
+        queueUploadConfirm.textContent = `Adding ${index + 1} of ${batch.length}…`;
         const body = new FormData();
         body.append("file", item.file);
         body.append("channelId", currentChannel.id);
-        body.append("playlist", playlist);
+        body.append("ep", ep);
         if (item.title.trim()) body.append("title", item.title.trim());
         const res = await fetch("/media", { method: "POST", body, credentials: "same-origin" });
         const data = await res.json().catch(() => ({}));
         if (generation !== uploadGeneration) return;
         if (!res.ok) throw new Error(data.error || "Upload failed");
-        ws.send(JSON.stringify({ type: "queue:add", url: data.url }));
+        if (data.queued) queuedCount++;
         pendingFiles = pendingFiles.filter((row) => row.id !== item.id);
         renderUploadFiles();
       }
@@ -1131,6 +1211,7 @@
       if (generation !== uploadGeneration) return;
       uploading = false;
       renderUploadFiles();
+      loadEps();
       showError(err.message || "Upload failed");
       return;
     }
@@ -1138,6 +1219,8 @@
     uploading = false;
     pendingFiles = [];
     renderUploadFiles();
+    loadEps();
+    showNotice(queuedCount > 0 ? `Added to ${ep}. New songs joined the live queue.` : `Added to ${ep}.`);
   });
 
   skipBtn.addEventListener("click", () => {

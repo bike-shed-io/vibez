@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { createBunWebSocket } from "hono/bun";
-import { handleOpen, handleClose, handleMessage, runSweep } from "./ws";
+import { enqueueUpload, handleOpen, handleClose, handleMessage, runSweep } from "./ws";
 import { startSlack } from "./slack";
 import { discord } from "./discord";
 import { channels, restoreChannels, snapshotChannels } from "./channels";
@@ -16,7 +16,7 @@ const authConfig = loadAuthConfig();
 const app = new Hono();
 
 app.route("/auth", createAuthRoutes(authConfig));
-app.route("/", createMediaRoutes(authConfig));
+app.route("/", createMediaRoutes(authConfig, Date.now, { onTrackQueued: enqueueUpload }));
 
 // WebSocket endpoint — everyone may listen; the session (cookie or Bearer) only unlocks DJ/queue actions
 app.get(

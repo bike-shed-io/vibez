@@ -721,6 +721,55 @@ button:active {
   gap: 0.5rem;
 }
 
+.ep-section {
+  margin: 0 0 0.9rem;
+}
+
+.ep-note {
+  margin: 0.35rem 0 0.65rem;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.ep-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem 0.75rem 0.45rem;
+  margin-bottom: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.ep-head,
+.ep-song {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ep-name {
+  font-weight: 650;
+}
+
+.ep-songs {
+  list-style: none;
+  margin-top: 0.45rem;
+}
+
+.ep-song {
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.ep-song span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queue-hint {
   margin: -0.35rem 0 0.75rem;
   color: var(--text-dim);

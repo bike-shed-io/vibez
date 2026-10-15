@@ -9,6 +9,7 @@ import {
   type Channel, type EndReason,
 } from "./channels";
 import { resolveStreamUrl, resolveTracks } from "./sources";
+import { epTracks, mediaIdFromUrl, orderEpPlayback, type QueuedUpload } from "./uploads";
 
 export const PROTOCOL_VERSION = 2;
 export const UPDATE_MESSAGE = "Update Vibez: brew upgrade --cask vibez";
@@ -131,6 +132,13 @@ function sendListeners(ch: Channel) {
 
 function broadcastQueue(ch: Channel) {
   broadcastChannel(ch, { type: "queue", items: ch.queue });
+}
+
+export function enqueueUpload(channelId: string, item: QueuedUpload) {
+  const ch = channels.get(channelId);
+  if (!ch) return;
+  addToQueue(ch, item);
+  broadcastQueue(ch);
 }
 
 function joinChannel(conn: Conn, ch: Channel) {
@@ -405,6 +413,36 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
   }
 
   switch (msg.type) {
+    case "ep:play": {
+      const slug = String(msg.slug ?? "").trim();
+      const trackId = typeof msg.trackId === "string" && msg.trackId.trim() ? msg.trackId.trim() : undefined;
+      let order;
+      try {
+        order = orderEpPlayback(epTracks(slug), trackId);
+      } catch (err) {
+        return sendError(conn, err instanceof Error ? err.message : "That Vibez EP has no songs");
+      }
+      let streamUrl: string | null = null;
+      try {
+        streamUrl = await resolveStreamUrl(order.first.url);
+      } catch (err) {
+        console.error("[ws] Vibez EP stream failed:", err);
+      }
+      if (!stillActiveDj(conn, ch)) return;
+      const rest = order.rest.map((track) => ({
+        id: crypto.randomUUID(),
+        url: track.url,
+        title: track.title,
+        artwork: null,
+        addedBy: conn.name,
+      }));
+      const kept = ch.queue.filter((item) => mediaIdFromUrl(item.url)?.epSlug !== slug);
+      ch.queue = [...rest, ...kept];
+      startTrack(ch, order.first.url, order.first.title, null, streamUrl);
+      broadcastQueue(ch);
+      return;
+    }
+
     case "dj:play": {
       const url = String(msg.url || "").trim();
       if (!url) return;

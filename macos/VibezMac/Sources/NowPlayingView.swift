@@ -260,10 +260,10 @@ struct NowPlayingView: View {
         }
         .disabled(!appModel.isRoomConnected)
 
-        TextField("Playlist", text: $appModel.uploadPlaylist, prompt: Text("Friday Suno"))
+        TextField("Vibez EP", text: $appModel.uploadEp, prompt: Text("Friday Suno"))
           .textFieldStyle(.roundedBorder)
           .disabled(appModel.isUploadingAudio)
-        Text("Groups this batch in one folder. Download Suno mp3s, then add them here.")
+        Text("Songs in one EP play as a set. Download Suno mp3s, then add them here.")
           .font(.caption2)
           .foregroundStyle(.secondary)
 
@@ -298,10 +298,48 @@ struct NowPlayingView: View {
               .disabled(
                 appModel.isUploadingAudio
                   || !appModel.isRoomConnected
-                  || appModel.uploadPlaylist.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  || appModel.uploadEp.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
               )
               Button("Cancel") { appModel.cancelPendingUpload() }
                 .disabled(appModel.isUploadingAudio)
+            }
+          }
+        }
+
+        if appModel.eps.isEmpty {
+          Text("No Vibez EPs yet. Upload songs to start one.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        } else {
+          Text("Play shuffles the EP. Skip moves to the next song, and nothing repeats until the set is done.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          ForEach(appModel.eps) { ep in
+            VStack(alignment: .leading, spacing: 4) {
+              HStack {
+                Text(ep.name).font(.subheadline.weight(.semibold))
+                Spacer()
+                if appModel.isDJ {
+                  Button("Play") { appModel.playEp(slug: ep.slug) }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .help("Shuffle this EP. Skip plays each song once.")
+                }
+              }
+              ForEach(ep.tracks) { track in
+                HStack {
+                  Text(track.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                  Spacer()
+                  if appModel.isDJ {
+                    Button("Play") { appModel.playEp(slug: ep.slug, trackId: track.id) }
+                      .controlSize(.small)
+                      .help("Play this song, then the rest of the EP in random order")
+                  }
+                }
+              }
             }
           }
         }
