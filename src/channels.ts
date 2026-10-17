@@ -1,3 +1,5 @@
+import type { RoomSource } from "./sources";
+
 export type QueueItem = {
   id: string;
   url: string;
@@ -26,6 +28,10 @@ export type Channel = {
   roomName: string | null;
   trustedEmails: Set<string>;
   queueTrustedOnly: boolean; // only owner, trusted DJs and the DJ may add tracks
+  source: RoomSource;
+  // The DJ's Suno access token. Server-side only: it is never sent to a client,
+  // listener or DJ, and never appears in ChannelInfo or the directory.
+  sunoToken: string | null;
   activeDjEmail: string;
   activeDjName: string;
   startedAt: number;
@@ -53,6 +59,7 @@ export type ChannelInfo = {
   activeDjName: string;
   djAway: boolean;
   queueTrustedOnly: boolean;
+  source: RoomSource;
 };
 
 export type DirectoryEntry = ChannelInfo & {
@@ -158,6 +165,8 @@ export function startChannel(
     roomName,
     trustedEmails,
     queueTrustedOnly: false,
+    source: "soundcloud",
+    sunoToken: null,
     activeDjEmail: ownerEmail,
     activeDjName: ownerName,
     startedAt: now,
@@ -274,6 +283,7 @@ export function channelInfo(ch: Channel): ChannelInfo {
     activeDjName: ch.activeDjName,
     djAway: ch.activeDjGoneSince !== null,
     queueTrustedOnly: ch.queueTrustedOnly,
+    source: ch.source,
   };
 }
 
@@ -330,6 +340,9 @@ export function restoreChannels(snapshot: ReturnType<typeof snapshotChannels>) {
       trustedEmails: new Set(ch.trustedEmails),
       members: new Map(),
       activeDjGoneSince: ch.activeDjGoneSince ?? snapshot.savedAt,
+      // A room saved before sources existed comes back on SoundCloud.
+      source: ch.source ?? "soundcloud",
+      sunoToken: ch.sunoToken ?? null,
     });
   }
 }
@@ -379,6 +392,28 @@ export function clearPlayback(ch: Channel, now = Date.now()) {
   ch.isPlaying = false;
   ch.position = 0;
   ch.positionTimestamp = now;
+}
+
+/** What the resolvers need from a room. Kept here so the token has one home. */
+export function sourceContext(ch: Channel) {
+  return { source: ch.source, sunoToken: ch.sunoToken };
+}
+
+/**
+ * Points a room at a different source. The queue is cleared because a queued
+ * link belongs to the source it was added from, and playback stops with it.
+ * Returns false when the room already plays from that source.
+ */
+export function setSource(ch: Channel, source: RoomSource, sunoToken: string | null, now = Date.now()): boolean {
+  if (ch.source === source) {
+    ch.sunoToken = sunoToken;
+    return false;
+  }
+  ch.source = source;
+  ch.sunoToken = sunoToken;
+  ch.queue = [];
+  clearPlayback(ch, now);
+  return true;
 }
 
 export function addToQueue(ch: Channel, item: QueueItem) {

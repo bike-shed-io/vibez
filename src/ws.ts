@@ -5,10 +5,12 @@ import { notifications } from "./notifications";
 import {
   addMember, addToQueue, canTakeDecks, channelInfo, channels, cleanRoomName, clearPlayback, directory,
   endChannel, memberNames, playbackSnapshot, popQueue, removeFromQueue, removeMember, reorderQueue,
-  rolesFor, setTrack, shuffleQueue, startChannel, sweepChannels, takeDecks, trust, untrust,
+  rolesFor, setSource, setTrack, shuffleQueue, sourceContext, startChannel, sweepChannels, takeDecks,
+  trust, untrust,
   type Channel, type EndReason,
 } from "./channels";
-import { resolveStreamUrl, resolveTracks } from "./sources";
+import { isRoomSource, resolveStreamUrl, resolveTracks, sourceLabel } from "./sources";
+import { checkAccess, isConfigured } from "./suno-proxy";
 
 export const PROTOCOL_VERSION = 2;
 export const UPDATE_MESSAGE = "Update Vibez: brew upgrade --cask vibez";
@@ -205,7 +207,7 @@ async function playNextFromQueue(ch: Channel, depth = 0): Promise<void> {
 
   let streamUrl: string | null = null;
   try {
-    streamUrl = await resolveStreamUrl(next.url);
+    streamUrl = await resolveStreamUrl(next.url, sourceContext(ch));
   } catch (err) {
     console.error(`[queue] Skipping "${next.title}" (${next.url}):`, err);
     broadcastQueue(ch);
@@ -216,9 +218,9 @@ async function playNextFromQueue(ch: Channel, depth = 0): Promise<void> {
   broadcastQueue(ch);
 }
 
-async function resolveOrReport(conn: Conn, url: string) {
+async function resolveOrReport(conn: Conn, ch: Channel, url: string) {
   try {
-    return await resolveTracks(url);
+    return await resolveTracks(url, sourceContext(ch));
   } catch (err: any) {
     sendError(conn, err?.message ?? "Failed to resolve URL");
     return null;
@@ -372,7 +374,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       if (!ch.trackUrl) return sendError(conn, "No track is loaded");
       const url = ch.trackUrl;
       try {
-        const fresh = await resolveStreamUrl(url);
+        const fresh = await resolveStreamUrl(url, sourceContext(ch));
         // The track (or the sender's membership) may have changed while this was in flight —
         // don't clobber a newer track's stream URL with a stale resolution.
         if (!stillMember(conn, ch) || ch.trackUrl !== url) return;
@@ -389,7 +391,7 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       if (!roles.canQueue) return sendError(conn, conn.user ? "Only trusted DJs can add tracks here" : "Sign in to add tracks");
       const url = String(msg.url || "").trim();
       if (!url) return sendError(conn, "URL is required");
-      const tracks = await resolveOrReport(conn, url);
+      const tracks = await resolveOrReport(conn, ch, url);
       if (!tracks || !stillMember(conn, ch)) return;
       for (const t of tracks) {
         addToQueue(ch, { id: crypto.randomUUID(), url: t.url, title: t.title, artwork: t.artwork, addedBy: conn.name });
@@ -405,17 +407,47 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
   }
 
   switch (msg.type) {
+    case "room:source": {
+      const source = msg.source;
+      if (!isRoomSource(source)) return sendError(conn, "Unknown source");
+
+      let token: string | null = null;
+      if (source === "suno") {
+        if (!isConfigured()) return sendError(conn, "Suno isn't set up on this server");
+        token = String(msg.token ?? "").trim();
+        if (!token) return sendError(conn, "A Suno access token is required");
+        try {
+          if (!await checkAccess(token)) return sendError(conn, "That Suno access token was rejected");
+        } catch (err: any) {
+          return sendError(conn, err?.message ?? "Couldn't reach the Suno proxy");
+        }
+        // The check is a round-trip: the sender may have lost the decks meanwhile.
+        if (!stillActiveDj(conn, ch)) return;
+      }
+
+      const switched = setSource(ch, source, token);
+      if (switched) {
+        broadcastChannel(ch, { type: "track", url: null, title: null, artwork: null, streamUrl: null });
+        broadcastChannel(ch, { type: "pause", position: 0 });
+        broadcastQueue(ch);
+      }
+      return sendChannelUpdate(ch, switched ? `Now playing from ${sourceLabel(source)} — the queue was cleared` : undefined);
+    }
+
     case "dj:play": {
       const url = String(msg.url || "").trim();
       if (!url) return;
-      const tracks = await resolveOrReport(conn, url);
+      const tracks = await resolveOrReport(conn, ch, url);
       if (!tracks || !stillActiveDj(conn, ch)) return;
       const [first, ...rest] = tracks;
       let streamUrl: string | null = null;
       try {
-        streamUrl = await resolveStreamUrl(first.url);
-      } catch (err) {
+        streamUrl = await resolveStreamUrl(first.url, sourceContext(ch));
+      } catch (err: any) {
         console.error("[ws] resolveStreamUrl failed:", err);
+        // A Suno song that never downloaded has nothing to play, so say so
+        // rather than putting a silent track on air.
+        if (ch.source === "suno") return sendError(conn, err?.message ?? "Couldn't load that Suno song");
       }
       if (!stillActiveDj(conn, ch)) return;
       startTrack(ch, first.url, first.title, first.artwork, streamUrl);
