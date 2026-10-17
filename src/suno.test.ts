@@ -1,30 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import {
-  chooseSunoStream,
-  describeSunoLink,
-  isPlainContainer,
-  isSunoUrl,
-  parseSunoPage,
-  resolveSunoSong,
-  type SunoPage,
-} from "./suno";
+import { describe, expect, test } from "bun:test";
+import { describeSunoLink, isSunoUrl, songPageUrl, sunoLinkError, sunoSongId } from "./suno";
 
 const UUID = "6d6536c7-4e24-405c-8d6d-0c4e1c4ee981";
-const OTHER = "4e7a04bb-bd77-4b39-b6dc-c0cdfa5d2860";
-
-function page(uuid = UUID): string {
-  return `<!doctype html>
-    <meta property="og:audio" content="https://cdn-o.suno.com/sil-100.mp3" />
-    <meta property="og:title" content="Raised on Rewind &amp; Friends" />
-    <meta property="og:image" content="https://cdn2.suno.ai/${uuid}_cover.jpeg" />
-    <audio id="silent-audio" src="https://cdn-o.suno.com/sil-100.mp3"></audio>
-    \\"audio_url\\":\\"https://cdn1.suno.ai/${uuid}.mp3\\"
-    \\"video_url\\":\\"https://cdn1.suno.ai/${uuid}.mp4\\"
-    \\"media_urls\\":[{\\"url\\":\\"https://d2lwuy8qc234o3.cloudfront.net/1/clip/${uuid}.m4a\\",\\"content_type\\":\\"m4a-opus\\"}]
-    \\"id\\":\\"${uuid}\\",\\"metadata\\":{\\"duration\\":220.64}
-    \\"url\\":\\"https://d2lwuy8qc234o3.cloudfront.net/2/clip/${OTHER}.m4a\\"
-    \\"video_url\\":\\"https://cdn1.suno.ai/${OTHER}.mp4\\"`;
-}
 
 describe("Suno links", () => {
   test("accepts song and short links, including www and a trailing query", () => {
@@ -43,161 +20,21 @@ describe("Suno links", () => {
     expect(describeSunoLink("https://www.suno.com/profile/necthan")).toEqual({ kind: "profile" });
     expect(describeSunoLink("https://suno.com/pricing")).toEqual({ kind: "other" });
   });
-});
 
-describe("parseSunoPage", () => {
-  test("reads title, cover, and duration, and skips silent decoys and other clips", () => {
-    const parsed = parseSunoPage(page(), UUID);
-    expect(parsed.title).toBe("Raised on Rewind & Friends");
-    expect(parsed.artwork).toBe(`https://cdn2.suno.ai/${UUID}_cover.jpeg`);
-    expect(parsed.durationSec).toBe(220.64);
-    expect(parsed.m4aUrl).toBe(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${UUID}.m4a`);
-    expect(parsed.mp4Url).toBe(`https://cdn1.suno.ai/${UUID}.mp4`);
-    expect(parsed.m4aUrl).not.toContain(OTHER);
-    expect(parsed.m4aUrl).not.toContain("sil-100");
-    expect(parsed.mp4Url).not.toMatch(/\.mp3$/);
+  test("names the song id a track URL stands for", () => {
+    expect(sunoSongId(`https://www.suno.com/song/${UUID.toUpperCase()}/?si=1`)).toBe(UUID);
+    expect(songPageUrl(UUID.toUpperCase())).toBe(`https://suno.com/song/${UUID}`);
+    expect(sunoSongId("https://suno.com/s/Ab12")).toBeNull();
+    expect(sunoSongId("https://soundcloud.com/artist/track")).toBeNull();
   });
 
-  test("does not borrow another clip's media when this song has none", () => {
-    const html = page(OTHER).replaceAll(OTHER, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    const parsed = parseSunoPage(html, UUID);
-    expect(parsed.m4aUrl).toBeNull();
-    expect(parsed.mp4Url).toBeNull();
-    expect(parsed.durationSec).toBeNull();
-  });
-});
-
-describe("chooseSunoStream", () => {
-  const parsed: SunoPage = parseSunoPage(page(), UUID);
-
-  test("uses the cloudfront m4a when it is a plain container", async () => {
-    const stream = await chooseSunoStream(parsed, async (url) => url.endsWith(".m4a"));
-    expect(stream).toBe(parsed.m4aUrl);
-  });
-
-  test("falls back to the song mp4 when the m4a is not directly playable", async () => {
-    const probed: string[] = [];
-    const stream = await chooseSunoStream(parsed, async (url) => {
-      probed.push(url);
-      return url.endsWith(".mp4");
-    });
-    expect(probed).toEqual([parsed.m4aUrl, parsed.mp4Url]);
-    expect(stream).toBe(parsed.mp4Url);
-  });
-
-  test("errors when neither candidate is a plain container", async () => {
-    await expect(chooseSunoStream(parsed, async () => false)).rejects.toThrow(
-      "Couldn't find playable audio for this Suno song.",
-    );
-  });
-
-  test("still uses the song mp4 when the CDN byte read fails", async () => {
-    const stream = await chooseSunoStream(parsed, async (url) => {
-      if (url.endsWith(".m4a")) return false;
-      throw new Error("blocked");
-    });
-    expect(stream).toBe(parsed.mp4Url);
-  });
-});
-
-describe("current song pages", () => {
-  function currentPage(uuid = UUID): string {
-    return `<!doctype html>
-      <meta property="og:audio" content="https://cdn-o.suno.com/sil-100.mp3" />
-      <meta property="og:title" content="This Is My World" />
-      <meta property="og:image" content="https://cdn2.suno.ai/${uuid}_cover.jpeg" />
-      <audio id="silent-audio" src="https://cdn-o.suno.com/sil-100.mp3"></audio>
-      \\"video_url\\":\\"https://cdn1.suno.ai/${uuid}.mp4\\"
-      \\"video_cover_url\\":\\"https://cdn1.suno.ai/video_upload_${OTHER}_processed_video.mp4\\"
-      \\"audio_url\\":\\"https://studio-api.prod.suno.com/api/forbidden\\"
-      \\"media_urls\\":[{\\"url\\":\\"https://d2lwuy8qc234o3.cloudfront.net/1/clip/${uuid}.m4a\\",\\"content_type\\":\\"m4a-opus\\",\\"encoding\\":\\"1.0.0\\"}]
-      \\"id\\":\\"${uuid}\\",\\"metadata\\":{\\"duration\\":224.96}`;
-  }
-
-  test("reads the song mp4 and skips the silent decoy and another clip's video", () => {
-    const parsed = parseSunoPage(currentPage(), UUID);
-    expect(parsed.title).toBe("This Is My World");
-    expect(parsed.m4aUrl).toBe(`https://d2lwuy8qc234o3.cloudfront.net/1/clip/${UUID}.m4a`);
-    expect(parsed.mp4Url).toBe(`https://cdn1.suno.ai/${UUID}.mp4`);
-    expect(parsed.mp4Url).not.toContain("processed_video");
-    expect(parsed.mp4Url).not.toContain("sil-100");
-    expect(parsed.m4aUrl).not.toContain("forbidden");
-  });
-
-  test("plays the mp4 when the m4a is encrypted and the mp4 header can't be read", async () => {
-    const song = await resolveSunoSong(`https://suno.com/song/${UUID}`, {
-      fetchPage: async () => ({
-        ok: true,
-        status: 200,
-        url: `https://suno.com/song/${UUID}`,
-        text: async () => currentPage(),
-      }),
-      probe: async (url) => {
-        if (url.endsWith(".m4a")) return false;
-        throw new Error("403");
-      },
-    });
-    expect(song.streamUrl).toBe(`https://cdn1.suno.ai/${UUID}.mp4`);
-    expect(song.title).toBe("This Is My World");
-  });
-});
-
-describe("isPlainContainer", () => {
-  const originalFetch = globalThis.fetch;
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
-  test("rejects encrypted bytes and treats an unread CDN response as unknown", async () => {
-    const encrypted = new Uint8Array(16);
-    encrypted[0] = 0x9e;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith(".m4a")) return new Response(encrypted, { status: 206 });
-      return new Response("denied", { status: 403 });
-    }) as typeof fetch;
-
-    expect(await isPlainContainer("https://cdn.example/clip.m4a")).toBe(false);
-    expect(await isPlainContainer("https://cdn1.suno.ai/song.mp4")).toBeNull();
-  });
-});
-
-describe("resolveSunoSong", () => {
-  test("follows a short link to the song it redirects to", async () => {
-    const song = await resolveSunoSong("https://suno.com/s/Ab12", {
-      fetchPage: async (url) => {
-        expect(url).toBe("https://suno.com/s/Ab12");
-        return {
-          ok: true,
-          status: 200,
-          url: `https://suno.com/song/${UUID}?sh=1`,
-          text: async () => page(),
-        };
-      },
-      probe: async (url) => url.endsWith(".mp4"),
-    });
-    expect(song.url).toBe(`https://suno.com/song/${UUID}`);
-    expect(song.title).toBe("Raised on Rewind & Friends");
-    expect(song.durationSec).toBe(220.64);
-    expect(song.streamUrl).toBe(`https://cdn1.suno.ai/${UUID}.mp4`);
-  });
-
-  test("rejects a short link that does not land on a song", async () => {
-    await expect(resolveSunoSong("https://suno.com/s/nope", {
-      fetchPage: async () => ({ ok: true, status: 200, url: "https://suno.com/", text: async () => "<html></html>" }),
-    })).rejects.toThrow("That Suno short link didn't resolve to a song.");
-  });
-
-  test("rejects playlist and profile links with a clear error", async () => {
-    await expect(resolveSunoSong("https://suno.com/playlist/chill")).rejects.toThrow(
-      "Suno playlists aren't supported.",
-    );
-    await expect(resolveSunoSong("https://suno.com/@necthan")).rejects.toThrow(
-      "Suno profiles aren't supported.",
-    );
-    await expect(resolveSunoSong("https://suno.com/pricing")).rejects.toThrow(
-      "That Suno link isn't a song.",
-    );
+  test("every rejection points at the link shape that works", () => {
+    expect(sunoLinkError("playlist")).toContain("Suno playlists aren't supported.");
+    expect(sunoLinkError("profile")).toContain("Suno profiles aren't supported.");
+    expect(sunoLinkError("short")).toContain("That Suno short link didn't resolve to a song.");
+    expect(sunoLinkError("other")).toContain("That Suno link isn't a song.");
+    for (const kind of ["playlist", "profile", "short", "other"] as const) {
+      expect(sunoLinkError(kind)).toContain("suno.com/song/");
+    }
   });
 });

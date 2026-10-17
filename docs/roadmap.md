@@ -9,6 +9,7 @@ This document is the shared project memory for agents and humans working on Vibe
 - Web and native macOS clients should use the same WebSocket protocol and server state.
 - The macOS app is the primary UX direction for the Mac-only team.
 - Keep SoundCloud usage conservative: no offline caching, no downloading, no bypassing intended playback restrictions.
+- Suno is the exception, and only through its own proxy: a room picks one source, and a Suno room's songs are downloaded by `suno-proxy/` and streamed from there.
 
 ## Current State
 
@@ -25,6 +26,18 @@ This document is the shared project memory for agents and humans working on Vibe
 - Each channel's vibez slider is shared by its listeners.
 - Only the active DJ controls playback; the owner and trusted DJs can take the decks.
 - Keep the web app working alongside the native app.
+- Suno is a room source, not a link the resolver sniffs. The active DJ picks the
+  source, which clears the queue, and Suno needs a static access token that only
+  the server holds. Listening stays anonymous for both sources.
+- Suno playback goes through `suno-proxy/`, a separate Go service that downloads
+  each song, keeps it for 24 hours and serves it with Range support. Scraping a
+  song page for a CDN URL to hand to listeners was the approach that failed:
+  the real clip is encrypted, `og:audio` is a silent decoy and the studio
+  `audio_url` is forbidden.
+- Only published Suno songs can be streamed, and that limitation is accepted. A
+  published song's page carries an mp4 with a plain audio track; an unpublished
+  song exposes only the encrypted clip, so the DJ is told to publish it on Suno
+  instead of being shown a generic failure.
 
 ## Near-Term Roadmap
 

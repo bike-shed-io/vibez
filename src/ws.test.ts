@@ -119,7 +119,7 @@ describe("going live", () => {
     const id = await goLive(pat);
 
     const state = last(pat, "channel:state");
-    expect(state.channel).toEqual({ id, ownerName: "DJ Pat", ownerPicture: null, roomName: "fridays", activeDjName: "DJ Pat", djAway: false, queueTrustedOnly: false });
+    expect(state.channel).toEqual({ id, ownerName: "DJ Pat", ownerPicture: null, roomName: "fridays", activeDjName: "DJ Pat", djAway: false, queueTrustedOnly: false, source: "soundcloud" });
     expect(state.roles).toEqual({ isOwner: true, isTrusted: false, isActiveDj: true, canQueue: true, trustedEmails: [] });
     expect(state.listeners).toEqual(["DJ Pat"]);
 

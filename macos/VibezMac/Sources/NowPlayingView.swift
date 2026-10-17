@@ -8,6 +8,11 @@ struct NowPlayingView: View {
   @State private var isEditingSeek = false
   @State private var renameDraft = ""
   @State private var isRenaming = false
+  @State private var sunoTokenDraft = ""
+  /// Set while the DJ is entering the access token a Suno room needs.
+  @State private var pendingTokenSource: RoomSource?
+
+  private var roomSource: RoomSource { appModel.currentChannel?.playbackSource ?? .soundcloud }
 
   var body: some View {
     ScrollView {
@@ -130,8 +135,10 @@ struct NowPlayingView: View {
 
   private var djControls: some View {
     VStack(alignment: .leading, spacing: 8) {
+      sourcePicker
+
       HStack(spacing: 6) {
-        TextField("SoundCloud or Suno URL…", text: $appModel.trackDraftURL)
+        TextField("\(roomSource.label) URL…", text: $appModel.trackDraftURL)
           .textFieldStyle(.roundedBorder)
           .onSubmit { appModel.playTrackDraft() }
         Button("Play") { appModel.playTrackDraft() }
@@ -164,6 +171,62 @@ struct NowPlayingView: View {
       .buttonStyle(.bordered)
     }
     .disabled(!appModel.isRoomConnected)
+  }
+
+  /// Switching the source clears the room's queue, so the change is only sent
+  /// once the DJ has confirmed (and, for Suno, entered the access token).
+  private var sourcePicker: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Picker("Source", selection: Binding(
+        get: { pendingTokenSource ?? roomSource },
+        set: { chooseSource($0) }
+      )) {
+        ForEach(RoomSource.allCases) { source in
+          Text(source.label).tag(source)
+        }
+      }
+      .pickerStyle(.segmented)
+      .disabled(!appModel.isRoomConnected)
+
+      if let pending = pendingTokenSource {
+        HStack(spacing: 6) {
+          SecureField("\(pending.label) access token", text: $sunoTokenDraft)
+            .textFieldStyle(.roundedBorder)
+            .onSubmit { submitToken(for: pending) }
+          Button("Use \(pending.label)") { submitToken(for: pending) }
+            .buttonStyle(.borderedProminent)
+            .disabled(isBlank(sunoTokenDraft))
+          Button("Cancel") { cancelTokenEntry() }
+        }
+      } else {
+        Text("Changing the source clears the queue")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private func chooseSource(_ source: RoomSource) {
+    guard source != roomSource else { return cancelTokenEntry() }
+    if source.needsAccessToken {
+      sunoTokenDraft = ""
+      pendingTokenSource = source
+      return
+    }
+    cancelTokenEntry()
+    appModel.setRoomSource(source)
+  }
+
+  private func submitToken(for source: RoomSource) {
+    let token = sunoTokenDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !token.isEmpty else { return }
+    appModel.setRoomSource(source, accessToken: token)
+    cancelTokenEntry()
+  }
+
+  private func cancelTokenEntry() {
+    pendingTokenSource = nil
+    sunoTokenDraft = ""
   }
 
   private var mix: some View {
@@ -251,7 +314,7 @@ struct NowPlayingView: View {
           .foregroundStyle(.secondary)
       } else if appModel.user != nil {
         HStack(spacing: 6) {
-          TextField("Add SoundCloud or Suno URL to queue…", text: $appModel.queueDraftURL)
+          TextField("Add \(roomSource.label) URL to queue…", text: $appModel.queueDraftURL)
             .textFieldStyle(.roundedBorder)
             .onSubmit { appModel.addToQueue() }
           Button("Add") { appModel.addToQueue() }

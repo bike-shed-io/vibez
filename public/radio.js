@@ -69,6 +69,10 @@
   const trackArtwork = $("trackArtwork");
   const djName = $("djName");
   const djControls = $("djControls");
+  const sourceSelect = $("sourceSelect");
+  const sunoTokenForm = $("sunoTokenForm");
+  const sunoTokenInput = $("sunoTokenInput");
+  const sunoTokenCancelBtn = $("sunoTokenCancelBtn");
   const trackUrlInput = $("trackUrlInput");
   const playBtn = $("playBtn");
   const pauseBtn = $("pauseBtn");
@@ -325,6 +329,8 @@
     endLiveBtn.classList.toggle("hidden", !roles.isOwner);
     trustPanel.classList.toggle("hidden", !roles.isOwner);
     queueTrustedOnly.checked = !!info.queueTrustedOnly;
+    sourceSelect.value = currentSource();
+    if (!roles.isActiveDj) hideSunoToken();
     renderQueueAccess();
     if (roles.isActiveDj && !wasDj) startHeartbeat();
     if (!roles.isActiveDj && wasDj) stopHeartbeat();
@@ -449,18 +455,69 @@
     if (next !== null) ws.send(JSON.stringify({ type: "live:rename", roomName: next }));
   });
 
+  // --- Room source (DJ only) ---
+  // A room plays from one source, so the queue is cleared when it changes.
+  function sourceLabel(source) {
+    return source === "suno" ? "Suno" : "SoundCloud";
+  }
+
+  function currentSource() {
+    return currentChannel?.source === "suno" ? "suno" : "soundcloud";
+  }
+
+  function hideSunoToken() {
+    sunoTokenForm.classList.add("hidden");
+    sunoTokenInput.value = "";
+  }
+
+  function confirmSourceSwitch(source) {
+    if (queueItems.length === 0 && !currentTrackUrl) return true;
+    return window.confirm(`Switching to ${sourceLabel(source)} clears the queue and stops the track. Continue?`);
+  }
+
+  sourceSelect.addEventListener("change", () => {
+    const source = sourceSelect.value;
+    if (source === currentSource()) return hideSunoToken();
+    if (!confirmSourceSwitch(source)) {
+      sourceSelect.value = currentSource();
+      return hideSunoToken();
+    }
+    if (source === "suno") {
+      // Suno needs an access token before the room can use it.
+      sunoTokenForm.classList.remove("hidden");
+      sunoTokenInput.focus();
+      return;
+    }
+    hideSunoToken();
+    ws.send(JSON.stringify({ type: "room:source", source }));
+  });
+
+  sunoTokenForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const token = sunoTokenInput.value.trim();
+    if (!token) return sunoTokenInput.focus();
+    ws.send(JSON.stringify({ type: "room:source", source: "suno", token }));
+    hideSunoToken();
+  });
+
+  sunoTokenCancelBtn.addEventListener("click", () => {
+    sourceSelect.value = currentSource();
+    hideSunoToken();
+  });
+
   // The server decides who may queue (roles.canQueue); this only mirrors it.
   // These assignments are the placeholders people see. The matching attributes in
-  // index.html are only the pre-JS fallback, so both sources have to be named here.
+  // index.html are only the pre-JS fallback, so the room's source has to be named here.
   function renderQueueAccess() {
     const allowed = !!currentUser && roles.canQueue;
+    const source = sourceLabel(currentSource());
     queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
-    trackUrlInput.placeholder = "Paste SoundCloud or Suno URL...";
+    trackUrlInput.placeholder = `Paste ${source} URL...`;
     queueUrlInput.placeholder = !currentUser
-      ? "Sign in to add a SoundCloud or Suno URL"
+      ? `Sign in to add a ${source} URL`
       : allowed
-        ? "Add SoundCloud or Suno URL to queue..."
-        : "Only trusted DJs can add SoundCloud or Suno tracks here";
+        ? `Add ${source} URL to queue...`
+        : `Only trusted DJs can add ${source} tracks here`;
   }
 
   queueTrustedOnly.addEventListener("change", () => {

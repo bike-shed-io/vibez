@@ -158,8 +158,21 @@
 
     <!-- DJ Controls (only visible when DJ) -->
     <div class="dj-controls hidden" id="djControls">
+      <div class="source-row">
+        <label for="sourceSelect">Source</label>
+        <select id="sourceSelect">
+          <option value="soundcloud">SoundCloud</option>
+          <option value="suno">Suno</option>
+        </select>
+        <span class="hint">Changing the source clears the queue</span>
+      </div>
+      <form id="sunoTokenForm" class="suno-token hidden">
+        <input type="password" id="sunoTokenInput" placeholder="Suno access token" autocomplete="off" required />
+        <button class="btn-primary btn-small" type="submit">Use Suno</button>
+        <button class="btn-secondary btn-small" id="sunoTokenCancelBtn" type="button">Cancel</button>
+      </form>
       <div class="url-row">
-        <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud or Suno URL..." />
+        <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud URL..." />
         <button class="btn-primary" id="playBtn">Play</button>
       </div>
       <div class="playback-row">
@@ -179,7 +192,7 @@
         </div>
       </div>
       <div class="queue-add-row">
-        <input type="url" id="queueUrlInput" placeholder="Add SoundCloud or Suno URL to queue..." disabled />
+        <input type="url" id="queueUrlInput" placeholder="Add SoundCloud URL to queue..." disabled />
         <button class="btn-primary" id="queueAddBtn" disabled>Add</button>
       </div>
       <div class="queue-list" id="queueList">

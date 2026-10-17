@@ -8,3 +8,6 @@ BANNED_EMAILS={{ op://infra/vibez/banned-emails }}
 SLACK_BOT_TOKEN={{ op://infra/vibez/slack-bot-token }}
 SLACK_APP_TOKEN={{ op://infra/vibez/slack-app-token }}
 SOUNDCLOUD_CLIENT_ID={{ op://infra/vibez/soundcloud-client-id }}
+# Base URL of the Suno proxy (suno-proxy/), a separate service. Empty disables
+# Suno rooms. The access token itself is typed by the DJ and lives on the proxy.
+SUNO_PROXY_URL={{ op://infra/vibez/suno-proxy-url }}

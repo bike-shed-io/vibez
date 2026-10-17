@@ -16,6 +16,8 @@ All secrets are stored in **1Password** (vault: `infra`, item: `vibez`) and inje
 | Slack bot token | `op://infra/vibez/slack-bot-token` | Slack bot (Socket Mode) |
 | Slack app token | `op://infra/vibez/slack-app-token` | Slack bot (Socket Mode) |
 | SoundCloud client ID | `op://infra/vibez/soundcloud-client-id` | SoundCloud streaming |
+| Suno proxy URL | `op://infra/vibez/suno-proxy-url` | Vibez → Suno proxy (base URL, empty disables Suno rooms) |
+| Suno access token | `op://infra/vibez/suno-access-token` | Suno proxy only — the static token DJs enter to use Suno |
 | SSH deploy key (private) | Document: `SSH deploy_vibez_ed25519 (private)` | SSH to server |
 | SSH deploy key (public) | Document: `SSH deploy_vibez_ed25519 (public)` | Authorized on server |
 
@@ -157,3 +159,38 @@ All done:
 | Nginx | Config deployed, reloaded, `https://vibez.bike-shed.io/` returns 200 |
 
 Note: bike-shed.io DNS is now managed via Terraform in the infra repo. Future subdomain requests go through here as before — infra handles it via `terraform apply`.
+
+---
+
+## Request: Suno proxy service (2026-10-17)
+
+**From:** vibez agent
+**To:** infra agent
+**Status:** OPEN
+
+Suno rooms need a second service: `suno-proxy/` in this repo, a Go binary that
+downloads Suno songs and streams them to listeners. It is deliberately not part
+of the Vibez container, because listeners fetch audio from it directly and Vibez
+stays on port 3005.
+
+**Shape of it:**
+
+| Item | Value |
+|------|-------|
+| Build | `suno-proxy/Dockerfile`, static `CGO_ENABLED=0` binary, non-root user |
+| Port | binds `127.0.0.1:3006` (`SUNO_PROXY_ADDR`) |
+| Storage | one volume for `/app/.cache/songs`; songs are deleted after 24h, so a few GB is plenty |
+| Public routes | `GET /audio/{id}` and `GET /healthz` — no auth, must allow `Range` requests |
+| DJ routes | `POST /songs`, `GET /songs/{id}`, `GET /auth` — static bearer token |
+
+**Please:**
+
+1. DNS + SSL for a new subdomain, e.g. `suno.vibez.bike-shed.io`.
+2. Nginx reverse proxy → `127.0.0.1:3006`. Audio responses are large and seekable,
+   so please pass Range/If-Range through and don't buffer the response body
+   (`proxy_buffering off;`).
+3. No WebSocket upgrade needed on this host.
+
+Once the subdomain exists, set `op://infra/vibez/suno-proxy-url` to it and
+`op://infra/vibez/suno-access-token` to a fresh random token
+(`openssl rand -hex 32`), which is the token DJs enter in the app.
