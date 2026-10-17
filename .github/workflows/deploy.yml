@@ -11,6 +11,7 @@
 #   SLACK_BOT_TOKEN                 - Slack bot token (Socket Mode, xoxb-...)
 #   SLACK_APP_TOKEN                 - Slack app token (Socket Mode, xapp-...)
 #   SOUNDCLOUD_CLIENT_ID            - SoundCloud streaming client ID; app can fall back to discovery
+#   SUNO_PROXY_URL                  - base URL of the Suno proxy; unset disables Suno rooms
 #   ADMIN_EMAILS                    - comma-separated admin emails
 #   BANNED_EMAILS                   - comma-separated banned emails
 #   DISCORD_WEBHOOK_URL             - Discord channel webhook; live rooms are posted there
@@ -69,6 +70,7 @@ jobs:
           SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_APP_TOKEN=${{ secrets.SLACK_APP_TOKEN }}
           SOUNDCLOUD_CLIENT_ID=${{ secrets.SOUNDCLOUD_CLIENT_ID }}
+          SUNO_PROXY_URL=${{ secrets.SUNO_PROXY_URL }}
           SLACK_NOTIFICATIONS_WEBHOOK_URL=${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}
           EOF
