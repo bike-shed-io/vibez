@@ -346,6 +346,14 @@ final class VibezAppModel: NSObject, ObservableObject {
     send(["type": "live:queue-access", "trustedOnly": trustedOnly])
   }
 
+  /// Points the room at a source. The server clears the queue when it changes.
+  /// Suno needs the DJ's access token; it is sent and never stored.
+  func setRoomSource(_ source: RoomSource, accessToken: String? = nil) {
+    var message: [String: Any] = ["type": "room:source", "source": source.rawValue]
+    if let accessToken, !accessToken.isEmpty { message["token"] = accessToken }
+    send(message)
+  }
+
   func trust(email: String) {
     send(["type": "live:trust", "email": email])
   }

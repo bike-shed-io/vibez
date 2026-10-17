@@ -400,6 +400,29 @@ button:active {
   gap: 0.5rem;
 }
 
+.dj-controls .source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.dj-controls .source-row .hint {
+  margin-top: 0;
+}
+
+.dj-controls .suno-token {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dj-controls .suno-token input {
+  flex: 1;
+  min-width: 12rem;
+}
+
 /* Vibez control (DJ) */
 .vibez-control {
   display: flex;
