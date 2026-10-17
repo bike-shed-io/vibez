@@ -1,9 +1,17 @@
-.PHONY: dev deploy env macos-project macos-build macos-run
+.PHONY: dev deploy env macos-project macos-build macos-run suno-proxy-dev suno-proxy-test
 
 MACOS_DERIVED_DATA := .build/VibezMac
 
 dev:
 	bun run dev
+
+# The Suno proxy is a separate service: run it alongside `make dev` and point
+# Vibez at it with SUNO_PROXY_URL=http://localhost:3006.
+suno-proxy-dev:
+	cd suno-proxy && SUNO_ACCESS_TOKEN=$${SUNO_ACCESS_TOKEN:-dev-token} go run ./cmd/suno-proxy
+
+suno-proxy-test:
+	cd suno-proxy && go test -race ./...
 
 deploy:
 	bash scripts/deploy.sh

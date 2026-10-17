@@ -16,6 +16,7 @@ Read this first when working on Vibez.
 - Only the active DJ controls playback; the owner and trusted DJs can take the decks.
 - WebSocket protocol v2 is documented in `docs/superpowers/plans/2026-10-01-channels.md` (Global Constraints).
 - Be conservative with SoundCloud usage: no downloads/offline caching or bypassing player restrictions.
+- A room plays from one source (SoundCloud or Suno); switching clears the queue. Suno needs a DJ access token and streams from `suno-proxy/`, a separate Go service — see `suno-proxy/README.md`.
 
 ## Useful Commands
 
