@@ -19,12 +19,17 @@
       const post = (msg) => window.webkit?.messageHandlers?.vibez?.postMessage(msg);
       let room = null; // the last {positionMs, timestamp, playing} we were told
 
+      // Back from an ad or a stall, or told where the room is: jump there when far off.
+      const snapToRoom = () => {
+        if (!room?.playing || !yt.isPlaying()) return;
+        const expected = VibezYouTube.roomPosition(room.positionMs, room.timestamp);
+        if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
+      };
+
       const yt = await VibezYouTube.create(document.getElementById("player"), {
         onState: (state) => {
           post({ type: "state", state });
-          if (state !== "playing" || !room?.playing) return;
-          const expected = VibezYouTube.roomPosition(room.positionMs, room.timestamp);
-          if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
+          if (state === "playing") snapToRoom();
         },
         onEnded: () => post({ type: "ended" }),
         onError: (code) => post({ type: "error", code }),
@@ -49,6 +54,11 @@
         seek(positionMs, timestamp) {
           room = { positionMs, timestamp, playing: room ? room.playing : true };
           yt.seek(VibezYouTube.roomPosition(positionMs, timestamp));
+        },
+        /** The DJ's periodic position; listeners only move when they have drifted. */
+        sync(positionMs, timestamp) {
+          room = { positionMs, timestamp, playing: room ? room.playing : true };
+          snapToRoom();
         },
         stop() {
           room = null;

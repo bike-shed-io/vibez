@@ -56,6 +56,11 @@ final class VideoOverlay: NSObject, WKScriptMessageHandler, NSWindowDelegate {
     call("seek(\(Int(positionMs)), \(Int(timestamp)))")
   }
 
+  /// The DJ's periodic position; the page only moves when it has drifted.
+  func sync(positionMs: Double, timestamp: Double) {
+    call("sync(\(Int(positionMs)), \(Int(timestamp)))")
+  }
+
   /// 0...1, the same live volume AVPlayer gets (base volume moved by the room vibez).
   func setVolume(_ level: Double) {
     call("setVolume(\(max(0, min(1, level))))")

@@ -231,6 +231,10 @@ describe("permissions", () => {
 
     await send(pat, { type: "dj:seek", position: 5000 });
     expect(last(anna, "seek").position).toBe(5000);
+
+    await send(pat, { type: "dj:position", position: 7000 });
+    expect(last(anna, "position")).toMatchObject({ position: 7000 });
+    expect(pat.sent).toEqual([]); // the DJ is the source, not a listener
   });
 
   test("anonymous members cannot queue", async () => {

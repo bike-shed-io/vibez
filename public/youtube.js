@@ -40,7 +40,11 @@
     let player = null;
     let state = -1;
     let videoId = null;
-    const started = () => state === 0 || state === 1 || state === 2 || state === 3;
+    let startSec = 0;
+    // `load` only remembers the video. Handing it to the player happens on the first play/pause:
+    // cueVideoById followed by loadVideoById in the same tick leaves the player cued, not playing,
+    // and `track` + `play` arrive back to back.
+    let loaded = false;
 
     await new Promise((resolve) => {
       player = new YT.Player(el, {
@@ -68,28 +72,37 @@
     }
 
     return {
-      /** Cues a video without playing it. */
-      load(id, startSec = 0) {
+      /** Remembers the video; nothing shows until play or pause. */
+      load(id, sec = 0) {
         videoId = id;
-        player.cueVideoById({ videoId: id, startSeconds: startSec });
+        startSec = sec;
+        loaded = false;
       },
       play(sec) {
-        // seekTo on a cued video is unreliable; loadVideoById starts cleanly at the position.
-        if (!started()) return player.loadVideoById({ videoId, startSeconds: sec || 0 });
+        if (sec != null) startSec = sec;
+        if (!loaded) {
+          loaded = true;
+          return player.loadVideoById({ videoId, startSeconds: startSec });
+        }
         if (sec != null) player.seekTo(sec, true);
         player.playVideo();
       },
       pause(sec) {
-        if (!started()) return this.load(videoId, sec || 0);
+        if (sec != null) startSec = sec;
+        if (!loaded) {
+          loaded = true;
+          return player.cueVideoById({ videoId, startSeconds: startSec });
+        }
         player.pauseVideo();
         if (sec != null) player.seekTo(sec, true);
       },
       seek(sec) {
-        if (!started()) return this.load(videoId, sec);
-        player.seekTo(sec, true);
+        startSec = sec;
+        if (loaded) player.seekTo(sec, true);
       },
       stop() {
         videoId = null;
+        loaded = false;
         player.stopVideo();
       },
       currentTime: () => player.getCurrentTime() || 0,

@@ -636,6 +636,12 @@ final class VibezAppModel: NSObject, ObservableObject {
       handlePause(message)
     case "seek":
       handleSeek(message)
+    case "position":
+      // The DJ's heartbeat, relayed. Only the video path corrects itself; AVPlayer keeps free-running.
+      guard let positionMs = numberValue(message["position"]), let timestampMs = numberValue(message["timestamp"]) else { return }
+      anchorPositionMs = positionMs
+      anchorTimestampMs = timestampMs
+      if videoId != nil { videoOverlay.sync(positionMs: positionMs, timestamp: timestampMs) }
     case "listeners":
       let names = (message["names"] as? [String]) ?? []
       if isDJ, names.count > listeners.count, Date() > joinSoundQuietUntil,

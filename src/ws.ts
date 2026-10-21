@@ -449,10 +449,11 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
       return broadcastChannel(ch, { type: "seek", position: ch.position, timestamp: ch.positionTimestamp }, conn.id);
 
     case "dj:position":
-      // Silent update — listeners interpolate
       ch.position = Number(msg.position ?? ch.position);
       ch.positionTimestamp = Date.now();
-      return;
+      // Listeners interpolate on their own; the relay only matters when they drifted (an ad on
+      // the DJ's YouTube player, a stall) and lets them jump back to where the DJ is.
+      return broadcastChannel(ch, { type: "position", position: ch.position, timestamp: ch.positionTimestamp }, conn.id);
 
     case "track:ended": {
       const endedUrl = String(msg.trackUrl || "");

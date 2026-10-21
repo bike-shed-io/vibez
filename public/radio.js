@@ -256,6 +256,11 @@
         setPlayerTime(roomPosition(msg.position, msg.timestamp));
         break;
 
+      case "position":
+        roomClock = { position: msg.position, timestamp: msg.timestamp, playing: roomClock ? roomClock.playing : true };
+        snapToRoom();
+        break;
+
       case "listeners":
         updateListeners(msg.names, msg.count);
         renderTrustPanel(msg.people);
@@ -328,12 +333,20 @@
     }
   }
 
-  function resumePlayer() {
+  function resumePlayer(sec) {
     if (currentVideoId) {
-      if (yt) yt.play();
+      if (yt) yt.play(sec);
     } else {
+      if (sec != null) audio.currentTime = sec;
       audio.play().catch(() => {});
     }
+  }
+
+  // Listeners who drifted (an ad, a stall, a late start) jump to where the room is. The DJ is the room.
+  function snapToRoom() {
+    if (!currentVideoId || !yt || roles.isActiveDj || !roomClock || !roomClock.playing || !yt.isPlaying()) return;
+    const expected = roomPosition(roomClock.position, roomClock.timestamp);
+    if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
   }
 
   function sendEnded() {
@@ -346,11 +359,7 @@
     return VibezYouTube.create(ytPlayerTarget, {
       onState: (state) => {
         if (state === "playing" || state === "buffering") autoplayPrompt.classList.add("hidden");
-        // Back from an ad or a stall: listeners jump to where the room is. The DJ is the room.
-        if (state === "playing" && !roles.isActiveDj && roomClock && roomClock.playing) {
-          const expected = roomPosition(roomClock.position, roomClock.timestamp);
-          if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
-        }
+        if (state === "playing") snapToRoom();
       },
       onEnded: sendEnded,
       onError: () => {
@@ -620,11 +629,9 @@
 
   autoplayBtn.addEventListener("click", () => {
     autoplayPrompt.classList.add("hidden");
-    if (pendingPlay) {
-      setPlayerTime(roomPosition(pendingPlay.position, pendingPlay.timestamp));
-      pendingPlay = null;
-    }
-    resumePlayer();
+    const sec = pendingPlay ? roomPosition(pendingPlay.position, pendingPlay.timestamp) : undefined;
+    pendingPlay = null;
+    resumePlayer(sec);
   });
 
   function pauseAt(positionMs) {
