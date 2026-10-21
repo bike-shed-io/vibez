@@ -38,6 +38,15 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
       }
       .store(in: &cancellables)
 
+    // The video window never takes focus, so clicks on it don't dismiss a transient popover.
+    // Get the popover out of the way the moment the video window comes up.
+    Publishers.CombineLatest(appModel.$videoId, appModel.$videoHidden)
+      .map { videoId, hidden in videoId != nil && !hidden }
+      .removeDuplicates()
+      .filter { $0 }
+      .sink { [weak self] _ in self?.popover.performClose(nil) }
+      .store(in: &cancellables)
+
     Publishers.CombineLatest3(appModel.$roles, appModel.$directory, appModel.$currentChannel)
       .map { roles, directory, channel -> MenuBarIcon.State in
         if roles.isActiveDj { return .dj }
