@@ -74,6 +74,9 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
     let menu = NSMenu()
     menu.addItem(menuItem("Open Vibez", #selector(openPopover)))
     menu.addItem(menuItem("Settings…", #selector(openSettings)))
+    if appModel.videoId != nil, appModel.videoHidden {
+      menu.addItem(menuItem("Show video", #selector(showVideo)))
+    }
     menu.addItem(.separator())
     menu.addItem(menuItem("Quit Vibez", #selector(quitApp)))
 
@@ -95,6 +98,10 @@ final class StatusBarController: NSObject, NSPopoverDelegate {
   @objc private func openSettings() {
     router.path = [.settings]
     showPopover()
+  }
+
+  @objc private func showVideo() {
+    appModel.showVideo()
   }
 
   @objc private func quitApp() {

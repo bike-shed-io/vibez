@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vibez — video</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    #player, iframe { width: 100%; height: 100%; display: block; border: 0; }
+  </style>
+</head>
+<body>
+  <div id="player"></div>
+  <script src="/youtube.js"></script>
+  <script>
+    // Hosted inside the Mac app's video overlay (WKWebView). Swift drives window.vibez and
+    // listens on webkit.messageHandlers.vibez. Positions in ms, timestamps epoch ms, as on the wire.
+    (async () => {
+      const post = (msg) => window.webkit?.messageHandlers?.vibez?.postMessage(msg);
+      let room = null; // the last {positionMs, timestamp, playing} we were told
+
+      const yt = await VibezYouTube.create(document.getElementById("player"), {
+        onState: (state) => {
+          post({ type: "state", state });
+          if (state !== "playing" || !room?.playing) return;
+          const expected = VibezYouTube.roomPosition(room.positionMs, room.timestamp);
+          if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
+        },
+        onEnded: () => post({ type: "ended" }),
+        onError: (code) => post({ type: "error", code }),
+        onTime: (sec, durationSec) => post({ type: "time", positionMs: Math.round(sec * 1000), durationMs: Math.round(durationSec * 1000) }),
+      });
+
+      window.vibez = {
+        load(videoId, positionMs, timestamp, playing) {
+          room = { positionMs, timestamp, playing };
+          const sec = playing ? VibezYouTube.roomPosition(positionMs, timestamp) : positionMs / 1000;
+          yt.load(videoId, sec);
+          if (playing) yt.play(sec);
+        },
+        play(positionMs, timestamp) {
+          room = { positionMs, timestamp, playing: true };
+          yt.play(VibezYouTube.roomPosition(positionMs, timestamp));
+        },
+        pause(positionMs) {
+          room = { positionMs, timestamp: Date.now(), playing: false };
+          yt.pause(positionMs / 1000);
+        },
+        seek(positionMs, timestamp) {
+          room = { positionMs, timestamp, playing: room ? room.playing : true };
+          yt.seek(VibezYouTube.roomPosition(positionMs, timestamp));
+        },
+        stop() {
+          room = null;
+          yt.stop();
+        },
+        setVolume(level) {
+          yt.setVolume(level);
+        },
+      };
+      post({ type: "ready" });
+    })();
+  </script>
+</body>
+</html>

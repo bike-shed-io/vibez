@@ -73,6 +73,7 @@
     <div class="now-playing">
       <div class="label">Now Playing</div>
       <div id="trackInfo" class="hidden">
+        <div id="ytPlayer" class="yt-player hidden"><div id="ytPlayerTarget"></div></div>
         <div class="track-info">
           <img class="track-artwork" id="trackArtwork" src="" alt="" />
           <div class="track-details">
@@ -159,7 +160,7 @@
     <!-- DJ Controls (only visible when DJ) -->
     <div class="dj-controls hidden" id="djControls">
       <div class="url-row">
-        <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud or Suno URL..." />
+        <input type="url" id="trackUrlInput" placeholder="Paste SoundCloud, Suno or YouTube URL..." />
         <button class="btn-primary" id="playBtn">Play</button>
       </div>
       <div class="playback-row">
@@ -179,7 +180,7 @@
         </div>
       </div>
       <div class="queue-add-row">
-        <input type="url" id="queueUrlInput" placeholder="Add SoundCloud or Suno URL to queue..." disabled />
+        <input type="url" id="queueUrlInput" placeholder="Add SoundCloud, Suno or YouTube URL to queue..." disabled />
         <button class="btn-primary" id="queueAddBtn" disabled>Add</button>
       </div>
       <div class="queue-list" id="queueList">
@@ -202,6 +203,7 @@
 
   <footer class="site-footer"><a href="/mac.html">Mac app</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a></footer>
 
+  <script src="/youtube.js"></script>
   <script src="/radio.js"></script>
 </body>
 </html>

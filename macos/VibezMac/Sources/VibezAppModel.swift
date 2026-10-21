@@ -55,6 +55,10 @@ final class VibezAppModel: NSObject, ObservableObject {
   @Published private(set) var currentTime: Double = 0
   @Published private(set) var duration: Double = 0
   @Published private(set) var queue: [QueueItem] = []
+  /// Set for YouTube tracks; they play in the video overlay instead of AVPlayer.
+  @Published private(set) var videoId: String?
+  /// The user closed the overlay for the current video; "Show video" brings it back.
+  @Published private(set) var videoHidden = false
 
   @Published private(set) var directory: [DirectoryEntry] = []
   @Published private(set) var currentChannel: ChannelInfo?
@@ -124,6 +128,11 @@ final class VibezAppModel: NSObject, ObservableObject {
   private let defaults = UserDefaults.standard
   private lazy var urlSession = URLSession(configuration: .default)
   private let player = AVPlayer()
+  private let videoOverlay = VideoOverlay()
+  // Last play/pause/seek the room agreed on; `roomPositionMs` extrapolates from it while playing.
+  private var anchorPositionMs = 0.0
+  private var anchorTimestampMs = 0.0
+  private var videoHiddenTask: Task<Void, Never>?
 
   private var webSocketTask: URLSessionWebSocketTask?
   private var receiveTask: Task<Void, Never>?
@@ -146,6 +155,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     self.trustedEmails = defaults.stringArray(forKey: Self.trustedEmailsKey) ?? []
     super.init()
     configurePlayer()
+    configureVideoOverlay()
     loadPersistedConfiguration()
   }
 
@@ -379,25 +389,48 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   func pauseAsDJIfPossible() {
     guard isDJ else { return }
-    send(["type": "dj:pause", "position": Int(currentTime * 1000)])
-    player.pause()
+    let positionMs = currentTime * 1000
+    send(["type": "dj:pause", "position": Int(positionMs)])
+    anchorPositionMs = positionMs
     isPlaying = false
+    if videoId != nil {
+      videoOverlay.pause(positionMs: positionMs)
+    } else {
+      player.pause()
+    }
   }
 
   func resumeAsDJIfPossible() {
     guard isDJ else { return }
-    send(["type": "dj:resume", "position": Int(currentTime * 1000)])
+    let positionMs = currentTime * 1000
+    send(["type": "dj:resume", "position": Int(positionMs)])
     // Server broadcasts `play` to every connection except the DJ; we must start locally (same as web `radio.js`).
-    player.play()
+    anchorPositionMs = positionMs
+    anchorTimestampMs = nowMs
     isPlaying = true
+    if videoId != nil {
+      videoOverlay.play(positionMs: positionMs, timestamp: anchorTimestampMs)
+    } else {
+      player.play()
+    }
   }
 
   func seek(to seconds: Double) {
     let clamped = max(0, min(duration > 0 ? duration : seconds, seconds))
-    seekPlayer(to: clamped)
+    seekLocal(toMs: clamped * 1000, timestampMs: nowMs)
     if isDJ {
       send(["type": "dj:seek", "position": Int(clamped * 1000)])
     }
+  }
+
+  /// Reopens the overlay the user closed, at the room's current position.
+  func showVideo() {
+    guard let videoId, let serverURL = configuration?.serverURL else { return }
+    videoHidden = false
+    updateVideoHiddenTimer()
+    videoOverlay.show(serverURL: serverURL)
+    videoOverlay.load(videoId: videoId, positionMs: roomPositionMs, timestamp: nowMs, playing: isPlaying)
+    applyVolume()
   }
 
   func setVibezLevel(_ value: Double) {
@@ -479,7 +512,7 @@ final class VibezAppModel: NSObject, ObservableObject {
     }
     startLivenessCheck(for: task)
 
-    send(["type": "hello", "protocol": 2, "name": listenerName])
+    send(["type": "hello", "protocol": 3, "name": listenerName])
   }
 
   private func disconnect() {
@@ -677,19 +710,95 @@ final class VibezAppModel: NSObject, ObservableObject {
     trackURLString = message["url"] as? String ?? message["trackUrl"] as? String
     trackTitle = message["title"] as? String ?? message["trackTitle"] as? String
     trackArtworkURL = URL(string: (message["artwork"] as? String) ?? (message["trackArtwork"] as? String) ?? "")
+    let previousVideoId = videoId
+    videoId = trackURLString == nil ? nil : message["videoId"] as? String
 
     if trackURLString == nil {
       player.replaceCurrentItem(with: nil)
       currentStreamURLString = nil
       hasTrack = false
+      closeVideo()
       return
     }
 
+    if let videoId {
+      player.pause()
+      player.replaceCurrentItem(with: nil)
+      currentStreamURLString = nil
+      hasTrack = true
+      // `track` carries no position (a `play` at 0 follows); `channel:state` does.
+      anchorPositionMs = numberValue(message["position"]) ?? 0
+      anchorTimestampMs = numberValue(message["positionTimestamp"]) ?? nowMs
+      let playing = message["isPlaying"] as? Bool ?? false
+      currentTime = anchorPositionMs / 1000
+      duration = 0
+      if videoId != previousVideoId { videoHidden = false } // hiding applies to one video only
+      updateVideoHiddenTimer()
+      if videoHidden { return }
+      guard let serverURL = configuration?.serverURL else { return }
+      videoOverlay.show(serverURL: serverURL)
+      videoOverlay.load(videoId: videoId, positionMs: anchorPositionMs, timestamp: anchorTimestampMs, playing: playing)
+      applyVolume()
+      return
+    }
+
+    closeVideo()
     if let streamString = (message["streamUrl"] as? String), !streamString.isEmpty {
       replacePlayerItemIfNeeded(streamString)
     }
 
     hasTrack = trackURLString != nil || currentStreamURLString != nil
+  }
+
+  private func closeVideo() {
+    videoOverlay.close()
+    videoHidden = false
+    updateVideoHiddenTimer()
+  }
+
+  private var nowMs: Double { Date().timeIntervalSince1970 * 1000 }
+
+  /// Where the room is right now, extrapolated from the last play/pause/seek.
+  private var roomPositionMs: Double {
+    max(0, isPlaying ? anchorPositionMs + nowMs - anchorTimestampMs : anchorPositionMs)
+  }
+
+  private func configureVideoOverlay() {
+    videoOverlay.onTime = { [weak self] positionMs, durationMs in
+      self?.currentTime = positionMs / 1000
+      self?.duration = durationMs / 1000
+    }
+    videoOverlay.onEnded = { [weak self] in self?.sendTrackEnded() }
+    videoOverlay.onError = { [weak self] _ in
+      // Embedding disabled or video gone: the DJ moves the room on, everyone sees why.
+      self?.notice = "Can't play this video here"
+      self?.sendTrackEnded()
+    }
+    videoOverlay.onClosed = { [weak self] in
+      guard let self else { return }
+      videoHidden = true
+      updateVideoHiddenTimer()
+    }
+  }
+
+  // With the overlay closed nobody reports time, so keep `currentTime` (and the DJ heartbeat) on the room
+  // clock and, as DJ, end the track ourselves or the room would stall on it.
+  private func updateVideoHiddenTimer() {
+    videoHiddenTask?.cancel()
+    videoHiddenTask = nil
+    guard videoId != nil, videoHidden else { return }
+
+    videoHiddenTask = Task { [weak self] in
+      while let self, !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { return }
+        self.currentTime = self.roomPositionMs / 1000
+        if self.isDJ, self.duration > 0, self.currentTime >= self.duration {
+          self.sendTrackEnded()
+          return
+        }
+      }
+    }
   }
 
   private func applyQueue(_ message: [String: Any]) {
@@ -704,11 +813,17 @@ final class VibezAppModel: NSObject, ObservableObject {
       return
     }
 
-    let nowMs = Date().timeIntervalSince1970 * 1000
+    anchorPositionMs = positionMs
+    anchorTimestampMs = timestampMs
+    isPlaying = true
+    if videoId != nil {
+      videoOverlay.play(positionMs: positionMs, timestamp: timestampMs)
+      return
+    }
+
     let targetSeconds = max(0, (positionMs + (nowMs - timestampMs)) / 1000)
     seekPlayer(to: targetSeconds)
     player.play()
-    isPlaying = true
   }
 
   private func handlePause(_ message: [String: Any]) {
@@ -718,7 +833,18 @@ final class VibezAppModel: NSObject, ObservableObject {
 
   private func handleSeek(_ message: [String: Any]) {
     guard let positionMs = numberValue(message["position"]) else { return }
-    seekPlayer(to: positionMs / 1000)
+    seekLocal(toMs: positionMs, timestampMs: numberValue(message["timestamp"]) ?? nowMs)
+  }
+
+  private func seekLocal(toMs positionMs: Double, timestampMs: Double) {
+    anchorPositionMs = positionMs
+    anchorTimestampMs = timestampMs
+    if videoId != nil {
+      currentTime = positionMs / 1000
+      videoOverlay.seek(positionMs: positionMs, timestamp: timestampMs)
+    } else {
+      seekPlayer(to: positionMs / 1000)
+    }
   }
 
   private func replacePlayerItemIfNeeded(_ streamString: String) {
@@ -782,6 +908,10 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   @objc private func handlePlaybackEnded(_ notification: Notification) {
+    sendTrackEnded()
+  }
+
+  private func sendTrackEnded() {
     guard let trackUrl = trackURLString else { return }
     send(["type": "track:ended", "trackUrl": trackUrl])
   }
@@ -792,9 +922,15 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func pausePlayer(at seconds: Double) {
+    anchorPositionMs = seconds * 1000
+    isPlaying = false
+    if videoId != nil {
+      currentTime = seconds
+      videoOverlay.pause(positionMs: seconds * 1000)
+      return
+    }
     seekPlayer(to: seconds)
     player.pause()
-    isPlaying = false
   }
 
   private func seekPlayer(to seconds: Double) {
@@ -864,7 +1000,9 @@ final class VibezAppModel: NSObject, ObservableObject {
   }
 
   private func applyVolume() {
-    player.volume = Float(effectiveVolume(for: baseVolume))
+    let volume = effectiveVolume(for: baseVolume)
+    player.volume = Float(volume)
+    if videoId != nil { videoOverlay.setVolume(volume) }
   }
 
   private func effectiveVolume(for base: Double) -> Double {

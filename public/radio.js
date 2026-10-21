@@ -8,6 +8,10 @@
   let pendingChannelId = channelIdFromPath();
   let protocolRejected = false;
   let currentTrackUrl = null;
+  let currentVideoId = null;      // set → the YouTube player is active instead of <audio>
+  let yt = null;                  // VibezYouTube player, created on first YouTube track
+  let roomClock = null;           // last {position, timestamp, playing} from the server
+  let airplayAvailable = false;
   let refreshPosition = 0;
   let isSeeking = false;
   let currentListenerNames = [];
@@ -76,6 +80,8 @@
   const listenerCount = $("listenerCount");
   const listenerList = $("listenerList");
   const audio = $("audioPlayer");
+  const ytPlayer = $("ytPlayer");
+  const ytPlayerTarget = $("ytPlayerTarget");
   const volumeValue = $("volumeValue");
   const volumeSlider = $("volumeSlider");
   const volumeIcon = $("volumeIcon");
@@ -165,7 +171,7 @@
     ws.addEventListener("open", () => {
       statusDot.classList.add("connected");
       statusText.textContent = "Connected";
-      ws.send(JSON.stringify({ type: "hello", protocol: 2, name }));
+      ws.send(JSON.stringify({ type: "hello", protocol: 3, name }));
     });
 
     ws.addEventListener("close", () => {
@@ -203,9 +209,10 @@
       case "channel:state":
         applyChannel(msg.channel, msg.roles);
         updateListeners(msg.listeners, msg.listeners.length);
-        if (msg.trackUrl && msg.streamUrl) {
-          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork, msg.streamUrl);
+        if (msg.trackUrl && (msg.streamUrl || msg.videoId)) {
+          showTrack(msg.trackUrl, msg.trackTitle, msg.trackArtwork, msg.streamUrl, msg.videoId);
           if (msg.isPlaying) playAt(msg.position, msg.positionTimestamp);
+          else pauseAt(msg.position);
         } else {
           clearPlayer();
         }
@@ -225,10 +232,10 @@
         break;
 
       case "track":
-        if (!msg.url && !msg.streamUrl) {
+        if (!msg.url) {
           clearPlayer();
         } else {
-          showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl);
+          showTrack(msg.url, msg.title, msg.artwork, msg.streamUrl, msg.videoId);
         }
         break;
 
@@ -245,7 +252,8 @@
         break;
 
       case "seek":
-        audio.currentTime = Math.max(0, (msg.position + (Date.now() - msg.timestamp)) / 1000);
+        roomClock = { position: msg.position, timestamp: msg.timestamp, playing: roomClock ? roomClock.playing : true };
+        setPlayerTime(roomPosition(msg.position, msg.timestamp));
         break;
 
       case "listeners":
@@ -298,11 +306,76 @@
   }
 
   // --- Player ---
+  // Two players, one at a time: <audio> for SoundCloud/Suno streams, the YouTube embed for videos.
+  // The helpers below route by currentVideoId so the rest of the file does not care which is active.
+  const roomPosition = (position, timestamp) => VibezYouTube.roomPosition(position, timestamp);
+  const playerTime = () => (currentVideoId ? (yt ? yt.currentTime() : 0) : audio.currentTime);
+  const playerDuration = () => (currentVideoId ? (yt ? yt.duration() : 0) : audio.duration);
+
+  function setPlayerTime(sec) {
+    if (currentVideoId) {
+      if (yt) yt.seek(sec);
+    } else {
+      audio.currentTime = Math.max(0, sec);
+    }
+  }
+
+  function pausePlayer() {
+    if (currentVideoId) {
+      if (yt) yt.pause();
+    } else {
+      audio.pause();
+    }
+  }
+
+  function resumePlayer() {
+    if (currentVideoId) {
+      if (yt) yt.play();
+    } else {
+      audio.play().catch(() => {});
+    }
+  }
+
+  function sendEnded() {
+    if (!ws || !currentTrackUrl || !roles.isActiveDj) return;
+    ws.send(JSON.stringify({ type: "track:ended", trackUrl: currentTrackUrl }));
+  }
+
+  function ensureYouTube() {
+    if (yt) return Promise.resolve(yt);
+    return VibezYouTube.create(ytPlayerTarget, {
+      onState: (state) => {
+        if (state === "playing" || state === "buffering") autoplayPrompt.classList.add("hidden");
+        // Back from an ad or a stall: listeners jump to where the room is. The DJ is the room.
+        if (state === "playing" && !roles.isActiveDj && roomClock && roomClock.playing) {
+          const expected = roomPosition(roomClock.position, roomClock.timestamp);
+          if (VibezYouTube.needsSnap(yt.currentTime(), expected)) yt.seek(expected);
+        }
+      },
+      onEnded: sendEnded,
+      onError: () => {
+        showError("Can't play this video here");
+        sendEnded(); // the DJ moves the room on so nobody is stuck
+      },
+      onTime: (sec, duration) => {
+        if (currentVideoId) renderSeek(sec, duration);
+      },
+    }).then((player) => {
+      yt = player;
+      applyVolume();
+      return yt;
+    });
+  }
+
   function clearPlayer() {
     trackInfo.classList.add("hidden");
     noTrack.classList.remove("hidden");
     noTrack.textContent = "No track playing — queue is empty";
     currentTrackUrl = null;
+    currentVideoId = null;
+    roomClock = null;
+    ytPlayer.classList.add("hidden");
+    if (yt) yt.stop();
     audio.pause();
     audio.removeAttribute("src");
   }
@@ -455,12 +528,12 @@
   function renderQueueAccess() {
     const allowed = !!currentUser && roles.canQueue;
     queueAddBtn.disabled = queueUrlInput.disabled = !allowed;
-    trackUrlInput.placeholder = "Paste SoundCloud or Suno URL...";
+    trackUrlInput.placeholder = "Paste SoundCloud, Suno or YouTube URL...";
     queueUrlInput.placeholder = !currentUser
-      ? "Sign in to add a SoundCloud or Suno URL"
+      ? "Sign in to add a SoundCloud, Suno or YouTube URL"
       : allowed
-        ? "Add SoundCloud or Suno URL to queue..."
-        : "Only trusted DJs can add SoundCloud or Suno tracks here";
+        ? "Add SoundCloud, Suno or YouTube URL to queue..."
+        : "Only trusted DJs can add SoundCloud, Suno or YouTube tracks here";
   }
 
   queueTrustedOnly.addEventListener("change", () => {
@@ -481,18 +554,30 @@
   });
 
   // --- Track display ---
-  function showTrack(url, title, artwork, streamUrl) {
+  function showTrack(url, title, artwork, streamUrl, videoId) {
     trackInfo.classList.remove("hidden");
     noTrack.classList.add("hidden");
     trackTitle.textContent = title || "Unknown Track";
-    if (artwork) {
+    const sameTrack = url === currentTrackUrl;
+    currentVideoId = videoId || null;
+    ytPlayer.classList.toggle("hidden", !videoId);
+    renderAirplay();
+    if (artwork && !videoId) {
       trackArtwork.src = artwork;
       trackArtwork.classList.remove("hidden");
     } else {
       trackArtwork.classList.add("hidden");
     }
-    if (url !== currentTrackUrl && streamUrl) {
-      currentTrackUrl = url;
+    if (sameTrack) return;
+    currentTrackUrl = url;
+    if (videoId) {
+      audio.pause();
+      audio.removeAttribute("src");
+      ensureYouTube().then((player) => {
+        if (currentVideoId === videoId) player.load(videoId);
+      });
+    } else if (streamUrl) {
+      if (yt) yt.stop();
       audio.src = streamUrl;
       audio.load();
     }
@@ -502,9 +587,24 @@
   let pendingPlay = null;
 
   function playAt(position, timestamp) {
+    roomClock = { position, timestamp, playing: true };
+    if (currentVideoId) {
+      const videoId = currentVideoId;
+      ensureYouTube().then((player) => {
+        if (currentVideoId !== videoId) return;
+        player.play(roomPosition(position, timestamp));
+        // The IFrame API fails silently when autoplay is blocked — fall back to the click prompt.
+        setTimeout(() => {
+          if (currentVideoId === videoId && roomClock?.playing && !player.isPlaying()) {
+            pendingPlay = { position, timestamp };
+            autoplayPrompt.classList.remove("hidden");
+          }
+        }, 1500);
+      });
+      return;
+    }
     const doPlay = () => {
-      const pos = (position + (Date.now() - timestamp)) / 1000;
-      audio.currentTime = Math.max(0, pos);
+      audio.currentTime = roomPosition(position, timestamp);
       audio.play().catch(() => {
         // Autoplay blocked — show prompt
         pendingPlay = { position, timestamp };
@@ -521,23 +621,35 @@
   autoplayBtn.addEventListener("click", () => {
     autoplayPrompt.classList.add("hidden");
     if (pendingPlay) {
-      const pos = (pendingPlay.position + (Date.now() - pendingPlay.timestamp)) / 1000;
-      audio.currentTime = Math.max(0, pos);
+      setPlayerTime(roomPosition(pendingPlay.position, pendingPlay.timestamp));
       pendingPlay = null;
     }
-    audio.play().catch(() => {});
+    resumePlayer();
   });
 
   function pauseAt(positionMs) {
+    roomClock = { position: positionMs, timestamp: Date.now(), playing: false };
+    if (currentVideoId) {
+      const videoId = currentVideoId;
+      ensureYouTube().then((player) => {
+        if (currentVideoId === videoId) player.pause(positionMs / 1000);
+      });
+      return;
+    }
     audio.pause();
     audio.currentTime = Math.max(0, positionMs / 1000);
   }
 
-  // --- AirPlay / Remote Playback ---
+  // --- AirPlay / Remote Playback (audio only; YouTube follows the system output) ---
+  function renderAirplay() {
+    airplayBtn.classList.toggle("hidden", !airplayAvailable || !!currentVideoId);
+  }
+
   function setupAirplay() {
     if (audio.remote) {
       audio.remote.watchAvailability((available) => {
-        airplayBtn.classList.toggle("hidden", !available);
+        airplayAvailable = available;
+        renderAirplay();
       }).catch(() => {});
 
       airplayBtn.addEventListener("click", () => {
@@ -552,7 +664,8 @@
 
     if (typeof audio.webkitShowPlaybackTargetPicker === "function") {
       audio.addEventListener("webkitplaybacktargetavailabilitychanged", (e) => {
-        airplayBtn.classList.toggle("hidden", e.availability !== "available");
+        airplayAvailable = e.availability === "available";
+        renderAirplay();
       });
       airplayBtn.addEventListener("click", () => {
         audio.webkitShowPlaybackTargetPicker();
@@ -579,7 +692,7 @@
     stopHeartbeat();
     heartbeatInterval = setInterval(() => {
       if (!roles.isActiveDj || !ws) return;
-      ws.send(JSON.stringify({ type: "dj:position", position: audio.currentTime * 1000 }));
+      ws.send(JSON.stringify({ type: "dj:position", position: playerTime() * 1000 }));
     }, 5000);
   }
 
@@ -632,13 +745,17 @@
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
-  audio.addEventListener("timeupdate", () => {
+  function renderSeek(current, duration) {
     if (isSeeking) return;
-    seekCurrent.textContent = formatTime(audio.currentTime);
-    if (audio.duration) {
-      seekBar.value = audio.currentTime / audio.duration;
-      seekDuration.textContent = formatTime(audio.duration);
+    seekCurrent.textContent = formatTime(current);
+    if (duration) {
+      seekBar.value = current / duration;
+      seekDuration.textContent = formatTime(duration);
     }
+  }
+
+  audio.addEventListener("timeupdate", () => {
+    if (!currentVideoId) renderSeek(audio.currentTime, audio.duration);
   });
 
   audio.addEventListener("loadedmetadata", () => {
@@ -647,13 +764,13 @@
 
   seekBar.addEventListener("input", () => {
     isSeeking = true;
-    seekCurrent.textContent = formatTime(seekBar.value * audio.duration);
+    seekCurrent.textContent = formatTime(seekBar.value * playerDuration());
   });
 
   seekBar.addEventListener("change", () => {
     isSeeking = false;
-    const pos = seekBar.value * audio.duration;
-    audio.currentTime = pos;
+    const pos = seekBar.value * playerDuration();
+    setPlayerTime(pos);
     if (roles.isActiveDj && ws) {
       ws.send(JSON.stringify({ type: "dj:seek", position: pos * 1000 }));
     }
@@ -668,13 +785,13 @@
   });
 
   pauseBtn.addEventListener("click", () => {
-    ws.send(JSON.stringify({ type: "dj:pause", position: audio.currentTime * 1000 }));
-    audio.pause();
+    ws.send(JSON.stringify({ type: "dj:pause", position: playerTime() * 1000 }));
+    pausePlayer();
   });
 
   resumeBtn.addEventListener("click", () => {
-    ws.send(JSON.stringify({ type: "dj:resume", position: audio.currentTime * 1000 }));
-    audio.play();
+    ws.send(JSON.stringify({ type: "dj:resume", position: playerTime() * 1000 }));
+    resumePlayer();
   });
 
   // --- Volume control ---
@@ -730,6 +847,7 @@
     const base = clampUnit(volumeSlider.value);
     const live = effectiveVolume(base);
     audio.volume = live;
+    if (yt) yt.setVolume(live);
     updateVolumeTrackVisual(base);
     updateRangeTrackVisual();
     updateVibezTone();
@@ -829,10 +947,7 @@
   });
 
   // --- Track ended → auto-advance queue ---
-  audio.addEventListener("ended", () => {
-    if (!ws || !currentTrackUrl || !roles.isActiveDj) return;
-    ws.send(JSON.stringify({ type: "track:ended", trackUrl: currentTrackUrl }));
-  });
+  audio.addEventListener("ended", sendEnded);
 
   // --- Queue rendering ---
   function renderQueue(items) {

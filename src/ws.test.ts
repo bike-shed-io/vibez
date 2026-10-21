@@ -29,7 +29,7 @@ async function connect(id: string, name: string, account: ReturnType<typeof user
     account,
   );
   open.push(id);
-  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 2, name }));
+  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 3, name }));
   return fake;
 }
 
@@ -75,7 +75,7 @@ describe("malformed frames", () => {
       expect(fake.sent).toEqual([{ type: "error", message: "Invalid JSON" }]);
     }
 
-    await handleMessage("malformed", JSON.stringify({ type: "hello", protocol: 2, name: "Mal" }));
+    await handleMessage("malformed", JSON.stringify({ type: "hello", protocol: 3, name: "Mal" }));
 
     for (const frame of ["null", "42", "[]"]) {
       fake.sent.length = 0;
@@ -91,6 +91,15 @@ describe("hello", () => {
     handleOpen({ send: (d: string) => fake.sent.push(JSON.parse(d)), close: () => (fake.closed = true) } as any, "old");
     open.push("old");
     await handleMessage("old", JSON.stringify({ type: "join", name: "Old Mac" }));
+    expect(fake.sent).toEqual([{ type: "error", code: "protocol", message: UPDATE_MESSAGE }]);
+    expect(fake.closed).toBe(true);
+  });
+
+  test("protocol 2 clients (pre-YouTube Mac apps) are told to update", async () => {
+    const fake: Fake = { id: "v2", sent: [], closed: false };
+    handleOpen({ send: (d: string) => fake.sent.push(JSON.parse(d)), close: () => (fake.closed = true) } as any, "v2");
+    open.push("v2");
+    await handleMessage("v2", JSON.stringify({ type: "hello", protocol: 2, name: "Old Mac" }));
     expect(fake.sent).toEqual([{ type: "error", code: "protocol", message: UPDATE_MESSAGE }]);
     expect(fake.closed).toBe(true);
   });
@@ -169,6 +178,41 @@ describe("listening", () => {
     const anon = await connect("anon", "Anon");
     await send(anon, { type: "vibez:boost", boost: 1 });
     expect(anon.sent).toEqual([{ type: "error", message: "Join a channel first" }]);
+  });
+});
+
+describe("youtube tracks", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  test("a YouTube link plays with a videoId and no stream, and cannot be stream-refreshed", async () => {
+    globalThis.fetch = (async (input: any) => {
+      expect(String(input)).toStartWith("https://www.youtube.com/oembed?");
+      return new Response(JSON.stringify({ title: "Rick", thumbnail_url: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" }));
+    }) as typeof fetch;
+    const pat = await connect("pat", "Pat", user("pat@example.com", "Pat"));
+    const id = await goLive(pat);
+    const anna = await connect("anna", "Anna");
+    await send(anna, { type: "channel:join", channelId: id });
+
+    await send(pat, { type: "dj:play", url: "https://youtu.be/dQw4w9WgXcQ?si=abc" });
+    expect(last(anna, "track")).toEqual({
+      type: "track",
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      title: "Rick",
+      artwork: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+      streamUrl: null,
+      videoId: "dQw4w9WgXcQ",
+    });
+    expect(last(anna, "play").position).toBe(0);
+
+    await send(anna, { type: "stream:refresh" });
+    expect(anna.sent).toEqual([{ type: "error", message: "No stream to refresh" }]);
+
+    await send(anna, { type: "channel:join", channelId: id });
+    expect(last(anna, "channel:state")).toMatchObject({ videoId: "dQw4w9WgXcQ", streamUrl: null });
   });
 });
 

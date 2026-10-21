@@ -38,7 +38,7 @@ async function setupDj(id: string, name: string) {
   const { ws, sent } = createFakeWs();
   handleOpen(ws, id, testUser(name));
   open.push(id);
-  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 2, name }));
+  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 3, name }));
   await handleMessage(id, JSON.stringify({ type: "live:start", djName: name }));
   sent.length = 0; // clear setup messages
   const channel = [...channels.values()].find((c) => c.ownerName === name)!;
@@ -49,7 +49,7 @@ async function setupListener(id: string, name: string, channelId: string) {
   const { ws, sent } = createFakeWs();
   handleOpen(ws, id, testUser(name));
   open.push(id);
-  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 2, name }));
+  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 3, name }));
   await handleMessage(id, JSON.stringify({ type: "channel:join", channelId }));
   sent.length = 0;
   return { ws, sent };

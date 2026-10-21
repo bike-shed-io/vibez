@@ -32,7 +32,7 @@ async function connect(id: string, name: string, account: ReturnType<typeof user
     account,
   );
   open.push(id);
-  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 2, name }));
+  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 3, name }));
   return fake;
 }
 

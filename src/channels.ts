@@ -36,6 +36,7 @@ export type Channel = {
   trackTitle: string | null;
   trackArtwork: string | null;
   streamUrl: string | null;
+  videoId: string | null; // YouTube: listeners play the embedded player instead of streamUrl
   isPlaying: boolean;
   position: number;
   positionTimestamp: number;
@@ -168,6 +169,7 @@ export function startChannel(
     trackTitle: null,
     trackArtwork: null,
     streamUrl: null,
+    videoId: null,
     isPlaying: false,
     position: 0,
     positionTimestamp: now,
@@ -330,6 +332,7 @@ export function restoreChannels(snapshot: ReturnType<typeof snapshotChannels>) {
       trustedEmails: new Set(ch.trustedEmails),
       members: new Map(),
       activeDjGoneSince: ch.activeDjGoneSince ?? snapshot.savedAt,
+      videoId: ch.videoId ?? null, // rooms saved before YouTube support
     });
   }
 }
@@ -344,6 +347,7 @@ export function playbackSnapshot(ch: Channel) {
     trackTitle: ch.trackTitle,
     trackArtwork: ch.trackArtwork,
     streamUrl: ch.streamUrl,
+    videoId: ch.videoId,
     isPlaying: ch.isPlaying,
     position: ch.position,
     positionTimestamp: ch.positionTimestamp,
@@ -359,12 +363,14 @@ export function setTrack(
   title: string | null,
   artwork: string | null,
   streamUrl: string | null,
+  videoId: string | null = null,
   now = Date.now(),
 ) {
   ch.trackUrl = url;
   ch.trackTitle = title;
   ch.trackArtwork = artwork;
   ch.streamUrl = streamUrl;
+  ch.videoId = videoId;
   ch.isPlaying = true;
   ch.position = 0;
   ch.positionTimestamp = now;
@@ -376,6 +382,7 @@ export function clearPlayback(ch: Channel, now = Date.now()) {
   ch.trackTitle = null;
   ch.trackArtwork = null;
   ch.streamUrl = null;
+  ch.videoId = null;
   ch.isPlaying = false;
   ch.position = 0;
   ch.positionTimestamp = now;

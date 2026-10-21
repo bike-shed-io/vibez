@@ -72,7 +72,7 @@ describe("chooseSunoStream", () => {
 
   test("uses the cloudfront m4a when it is a plain container", async () => {
     const stream = await chooseSunoStream(parsed, async (url) => url.endsWith(".m4a"));
-    expect(stream).toBe(parsed.m4aUrl);
+    expect(stream).toBe(parsed.m4aUrl!);
   });
 
   test("falls back to the song mp4 when the m4a is not directly playable", async () => {
@@ -81,8 +81,8 @@ describe("chooseSunoStream", () => {
       probed.push(url);
       return url.endsWith(".mp4");
     });
-    expect(probed).toEqual([parsed.m4aUrl, parsed.mp4Url]);
-    expect(stream).toBe(parsed.mp4Url);
+    expect(probed).toEqual([parsed.m4aUrl!, parsed.mp4Url!]);
+    expect(stream).toBe(parsed.mp4Url!);
   });
 
   test("errors when neither candidate is a plain container", async () => {
@@ -96,7 +96,7 @@ describe("chooseSunoStream", () => {
       if (url.endsWith(".m4a")) return false;
       throw new Error("blocked");
     });
-    expect(stream).toBe(parsed.mp4Url);
+    expect(stream).toBe(parsed.mp4Url!);
   });
 });
 

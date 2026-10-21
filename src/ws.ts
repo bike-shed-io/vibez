@@ -9,8 +9,9 @@ import {
   type Channel, type EndReason,
 } from "./channels";
 import { resolveStreamUrl, resolveTracks } from "./sources";
+import { youtubeVideoId } from "./youtube";
 
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 export const UPDATE_MESSAGE = "Update Vibez: brew upgrade --cask vibez";
 const DIRECTORY_THROTTLE_MS = 1_000;
 const MAX_SKIP_ATTEMPTS = 5;
@@ -167,15 +168,16 @@ export function runSweep(now = Date.now()) {
 // --- Playback ---
 
 function startTrack(ch: Channel, url: string, title: string | null, artwork: string | null, streamUrl: string | null) {
-  setTrack(ch, url, title, artwork, streamUrl);
-  broadcastChannel(ch, { type: "track", url, title, artwork, streamUrl });
+  const videoId = youtubeVideoId(url);
+  setTrack(ch, url, title, artwork, streamUrl, videoId);
+  broadcastChannel(ch, { type: "track", url, title, artwork, streamUrl, videoId });
   broadcastChannel(ch, { type: "play", position: 0, timestamp: ch.positionTimestamp });
   scheduleDirectory();
 }
 
 function stopPlayback(ch: Channel) {
   clearPlayback(ch);
-  broadcastChannel(ch, { type: "track", url: null, title: null, artwork: null, streamUrl: null });
+  broadcastChannel(ch, { type: "track", url: null, title: null, artwork: null, streamUrl: null, videoId: null });
   broadcastChannel(ch, { type: "pause", position: 0 });
   broadcastQueue(ch);
   scheduleDirectory();
@@ -370,12 +372,13 @@ export async function handleMessage(id: string, raw: string | ArrayBuffer | Uint
 
     case "stream:refresh": {
       if (!ch.trackUrl) return sendError(conn, "No track is loaded");
+      if (ch.videoId) return sendError(conn, "No stream to refresh");
       const url = ch.trackUrl;
       try {
         const fresh = await resolveStreamUrl(url);
         // The track (or the sender's membership) may have changed while this was in flight —
         // don't clobber a newer track's stream URL with a stale resolution.
-        if (!stillMember(conn, ch) || ch.trackUrl !== url) return;
+        if (!stillMember(conn, ch) || ch.trackUrl !== url || !fresh) return;
         ch.streamUrl = fresh;
         send(conn, { type: "stream:refreshed", streamUrl: fresh });
       } catch (err) {

@@ -230,7 +230,7 @@ describe("sweepChannels", () => {
 
   test("playing keeps the channel alive", () => {
     const channel = live();
-    setTrack(channel, "https://soundcloud.com/a/b", "B", null, "https://cf.sndcdn.com/x", NOW);
+    setTrack(channel, "https://soundcloud.com/a/b", "B", null, "https://cf.sndcdn.com/x", null, NOW);
     expect(sweepChannels(NOW + IDLE_MS * 3)).toEqual([]);
     channel.isPlaying = false;
     expect(sweepChannels(NOW + IDLE_MS * 3 + IDLE_MS - 1)).toEqual([]);
@@ -261,6 +261,7 @@ describe("snapshot across a restart", () => {
     addMember(channel, "c1", { name: "Pat", email: "pat@example.com", connectedAt: NOW });
     setTrack(channel, "https://soundcloud.com/a/b", "Song", null, "https://cf-media/stream");
     const snapshot = JSON.parse(JSON.stringify(snapshotChannels(NOW + 5)));
+    delete snapshot.channels[0].videoId; // a file written before YouTube support
     channels.clear();
 
     restoreChannels(snapshot);
@@ -269,6 +270,7 @@ describe("snapshot across a restart", () => {
     expect(restored.members.size).toBe(0);
     expect([...restored.trustedEmails]).toEqual([ANNA]);
     expect(restored.trackTitle).toBe("Song");
+    expect(restored.videoId).toBeNull();
     expect(restored.activeDjGoneSince).toBe(NOW + 5);
   });
 

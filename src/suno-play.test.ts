@@ -70,7 +70,7 @@ async function connect(id: string): Promise<Fake> {
     user("pat@example.com", "Pat"),
   );
   open.push(id);
-  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 2, name: "Pat" }));
+  await handleMessage(id, JSON.stringify({ type: "hello", protocol: 3, name: "Pat" }));
   return fake;
 }
 
