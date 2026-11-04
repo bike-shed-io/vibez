@@ -1,17 +1,21 @@
-// Run with Electron on Linux. A local fixture exercises the real window, preload,
-// Unix socket, CLI, auth callback, and navigation restrictions without production rooms.
+// Run with Electron on Windows, Linux, or macOS. The fixture uses a private profile.
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, shell } = require('electron');
-const { paths, request } = require('../core.cjs');
+const os = require('node:os');
+const { app, BrowserWindow, shell, safeStorage } = require('electron');
+const { createPlatform } = require('../platform/index.cjs');
+const { createCredentialStore } = require('../credentials.cjs');
+const { request } = require('../ipc.cjs');
 
-const root = fs.mkdtempSync('/tmp/vibez-smoke-');
+const root = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.tmpdir() : '/tmp', 'vibez-smoke-'));
+process.env.VIBEZ_DATA_DIR = path.join(root, 'profile');
 process.env.XDG_CONFIG_HOME = path.join(root, 'config');
 process.env.XDG_RUNTIME_DIR = path.join(root, 'runtime');
 fs.mkdirSync(process.env.XDG_RUNTIME_DIR, { mode: 0o700 });
-const locations = paths();
+const platform = createPlatform({ app, safeStorage });
+const locations = platform.locations;
 let externalUrl;
 shell.openExternal = async (value) => { externalUrl = value; };
 let available = true;
@@ -43,7 +47,7 @@ async function until(check, timeout = 15000) {
 server.listen(0, '127.0.0.1', async () => {
   fixtureOrigin = `http://127.0.0.1:${server.address().port}`;
   process.env.VIBEZ_SERVER_URL = fixtureOrigin;
-  require('../main.cjs');
+  require(process.env.VIBEZ_SMOKE_MAIN || '../main.cjs');
   try {
     await until(async () => (await request('status', locations.socket)).connected);
     const window = BrowserWindow.getAllWindows()[0];
@@ -73,8 +77,9 @@ server.listen(0, '127.0.0.1', async () => {
     const signedIn = new Promise((resolve) => window.webContents.once('did-finish-load', resolve));
     app.emit('second-instance', {}, ['vibez://auth?token=fake.signature']);
     await until(() => fs.existsSync(locations.token));
-    assert.equal(JSON.parse(fs.readFileSync(locations.token)).token, 'fake.signature');
-    assert.equal(fs.statSync(locations.token).mode & 0o777, 0o600);
+    assert.equal(await createCredentialStore(platform).load(fixtureOrigin), 'fake.signature');
+    if (process.platform === 'win32') assert.equal(fs.readFileSync(locations.token).includes(Buffer.from('fake.signature')), false);
+    else assert.equal(fs.statSync(locations.token).mode & 0o777, 0o600);
     await signedIn;
     await until(() => window.webContents.getURL() === `${fixtureOrigin}/`);
     await until(async () => window.webContents.executeJavaScript(`!!document.getElementById('signInLink')`));

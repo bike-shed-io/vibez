@@ -1,20 +1,19 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell, dialog } = require('electron');
-const fs = require('node:fs');
+const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell, dialog, safeStorage } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { serverUrl, paths, privateDirectory, saveToken, deepLink, sameOrigin, sanitizeStatus, controlServer } = require('./core.cjs');
+const { serverUrl, deepLink, sameOrigin, sanitizeStatus } = require('./shared/core.cjs');
+const { createPlatform } = require('./platform/index.cjs');
+const { createCredentialStore } = require('./credentials.cjs');
+const { controlServer } = require('./ipc.cjs');
 
-const locations = paths();
+const platform = createPlatform({ app, safeStorage });
+const locations = platform.locations;
+const credentials = createCredentialStore(platform);
 const origin = serverUrl(process.env.VIBEZ_SERVER_URL);
-privateDirectory(locations.config);
+platform.prepareData();
 app.setName('Vibez');
 app.setPath('userData', locations.config);
-if (process.platform === 'linux') {
-  app.setDesktopName('vibez.desktop');
-  // PowerPat has no working Secret Service. The native token is already protected
-  // by a private directory/file; do not let Chromium block on a keyring either.
-  app.commandLine.appendSwitch('password-store', 'basic');
-}
+platform.configure();
 app.enableSandbox();
 
 let window;
@@ -30,8 +29,13 @@ const background = process.argv.includes('--background');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
+} else if (process.argv.includes('--quit') || process.argv.includes('--uninstall-integration')) {
+  if (process.argv.includes('--uninstall-integration')) platform.removeIntegration?.();
+  app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
+    if (argv.includes('--uninstall-integration')) { platform.removeIntegration?.(); return app.quit(); }
+    if (argv.includes('--quit')) return app.quit();
     const link = argv.map(deepLink).find(Boolean);
     if (window) handleLink(link); else pendingLink = link || { type: 'open' };
   });
@@ -74,6 +78,10 @@ function updateTray() {
     { label: 'Open Vibez', click: show },
     { label: status.muted ? 'Unmute locally' : 'Mute locally', click: mute },
     { label: 'Hide window', enabled: !status.video, click: hide },
+    ...(platform.startup?.available() ? [{
+      label: 'Start Vibez at sign-in', type: 'checkbox', checked: platform.startup.enabled(),
+      click: (item) => { platform.startup.set(item.checked); updateTray(); },
+    }] : []),
     { type: 'separator' },
     { label: 'Quit Vibez', click: () => app.quit() },
   ]));
@@ -86,7 +94,7 @@ function trustedSender(event) {
 
 async function signIn() {
   authDeadline = Date.now() + 10 * 60_000;
-  // Reuse the existing native callback; no server deployment is needed for Linux.
+  // Reuse the existing native callback on both desktop platforms; no server deployment.
   await shell.openExternal(`${origin}/auth/google?client=mac`);
 }
 
@@ -110,7 +118,7 @@ async function handleLink(link) {
       headers: { Authorization: `Bearer ${link.token}` }, redirect: 'error', signal: AbortSignal.timeout(15000),
     });
     if (!response.ok || !(await response.json()).email) throw new Error('Session was not accepted.');
-    saveToken(locations.token, JSON.stringify({ origin, token: link.token }));
+    await credentials.save(origin, link.token);
     await installCookie(link.token);
     show();
     window.webContents.reload();
@@ -145,26 +153,24 @@ function external(value) {
 }
 
 async function start() {
+  platform.ready();
   // Session cookies stay in memory. Only the native session token is persisted, privately.
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.webRequest.onBeforeRequest({ urls: [`${origin}/auth/logout`] }, (details, callback) => {
     if (details.method === 'POST') {
-      fs.rmSync(locations.token, { force: true });
+      credentials.clear();
       authDeadline = 0;
     }
     callback({});
   });
-  if (fs.existsSync(locations.token)) {
-    fs.chmodSync(locations.token, 0o600);
-    try {
-      const saved = JSON.parse(fs.readFileSync(locations.token, 'utf8'));
-      if (saved.origin === origin && typeof saved.token === 'string') await installCookie(saved.token);
-    } catch { console.warn('[vibez] Could not restore sign-in; sign in again from Vibez.'); }
-  }
+  try {
+    const token = await credentials.load(origin);
+    if (token) await installCookie(token);
+  } catch { console.warn('[vibez] Could not restore sign-in; sign in again from Vibez.'); }
   window = new BrowserWindow({
     title: 'Vibez', width: 520, height: 820, minWidth: 400, minHeight: 500,
-    show: !background, icon: path.join(__dirname, 'assets/vibez.png'), backgroundColor: '#111119',
+    show: !background, icon: path.join(__dirname, 'assets', platform.windowIcon), backgroundColor: '#111119',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'), sandbox: true, contextIsolation: true,
       nodeIntegration: false, nodeIntegrationInSubFrames: false, webSecurity: true,
@@ -213,11 +219,11 @@ async function start() {
         event.senderFrame.url === offlinePage) window.loadURL(origin).catch(loadFailed);
   });
   try {
-    tray = new Tray(path.join(__dirname, 'assets/tray.png'));
+    tray = new Tray(path.join(__dirname, 'assets', platform.trayIcon));
     tray.on('click', show);
     updateTray();
-  } catch { console.warn('[vibez] Tray unavailable; use the Waybar module or app launcher.'); }
-  control = await controlServer(locations.socket, (command) => {
+  } catch { console.warn('[vibez] Tray unavailable; use the app launcher.'); }
+  control = await controlServer(platform, (command) => {
     if (command === 'status') return status;
     if (command === 'open') { show(); return { ok: true }; }
     if (command === 'hide') return hide();
@@ -236,7 +242,7 @@ async function start() {
 app.on('before-quit', () => {
   quitting = true;
   control?.close();
-  if (control) fs.rmSync(locations.socket, { force: true });
+  if (control) platform.cleanupIPC();
 });
 app.on('activate', show);
 app.on('window-all-closed', () => { if (quitting) app.quit(); });

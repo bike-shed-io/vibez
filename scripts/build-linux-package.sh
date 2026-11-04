@@ -11,10 +11,10 @@ mkdir -p "$output"
 output="$(cd -- "$output" && pwd)"
 staging="$(mktemp -d "${TMPDIR:-/tmp}/vibez-arch.XXXXXX")"
 trap 'rm -rf -- "$staging"' EXIT
-version="$(node -p 'require(process.argv[1]).version' "$root/linux/package.json")"
+version="$(node -p 'require(process.argv[1]).version' "$root/desktop/package.json")"
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || date +%s)}"
 python3 - "$root" "$staging" "$version" <<'PY'
-import gzip, hashlib, os, pathlib, sys, tarfile
+import gzip, hashlib, os, pathlib, re, sys, tarfile
 root, staging, version = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
 archive = staging / f"vibez-desktop-{version}.tar.gz"
 epoch = int(os.environ["SOURCE_DATE_EPOCH"])
@@ -25,12 +25,12 @@ def normalize(info):
     return info
 with archive.open("wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=epoch) as compressed:
     with tarfile.open(fileobj=compressed, mode="w") as tar:
-        for entry in sorted((root / "linux").rglob("*")):
+        for entry in sorted((root / "desktop").rglob("*")):
             if entry.is_file() and "node_modules" not in entry.parts:
-                tar.add(entry, arcname=f"vibez-desktop-{version}/{entry.relative_to(root / 'linux')}", filter=normalize)
+                tar.add(entry, arcname=f"vibez-desktop-{version}/{entry.relative_to(root / 'desktop')}", filter=normalize)
 checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
 recipe = (root / "pkg/arch/PKGBUILD").read_text().replace("@SOURCE_SHA256@", checksum)
-recipe = recipe.replace("pkgver=0.1.0", f"pkgver={version}")
+recipe = re.sub(r"^pkgver=.*$", f"pkgver={version}", recipe, flags=re.MULTILINE)
 (staging / "PKGBUILD").write_text(recipe)
 PY
 cd -- "$staging"

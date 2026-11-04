@@ -5,7 +5,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { serverUrl, paths, privateDirectory, saveToken, deepLink, sameOrigin, sanitizeStatus, waybar, request, controlServer } = require('../core.cjs');
+const { serverUrl, deepLink, sameOrigin, sanitizeStatus } = require('../shared/core.cjs');
+const { locations: paths, privateDirectory } = require('../platform/posix.cjs');
+const { createPlatform } = require('../platform/index.cjs');
+const { createCredentialStore } = require('../credentials.cjs');
+const { waybar } = require('../platform/linux/waybar.cjs');
+const { request, controlServer } = require('../ipc.cjs');
 const execute = promisify(execFile);
 
 test('server is HTTPS and origin-only, with loopback HTTP for development', () => {
@@ -39,20 +44,23 @@ test('remote metadata is bounded and Pango markup is escaped in Waybar', () => {
   assert.equal(waybar({ running: false }).class, 'stopped');
 });
 
-test('XDG paths agree for the app and the lightweight CLI', () => {
+test('XDG paths agree for the app and the lightweight CLI', { skip: process.platform === 'win32' }, () => {
   const result = paths({ XDG_CONFIG_HOME: '/config', XDG_RUNTIME_DIR: '/run/user/123' }, '/home/test');
   assert.equal(result.token, '/config/vibez-desktop/session-token');
   assert.equal(result.socket, '/run/user/123/vibez-desktop/control.sock');
   assert.equal(paths({}, '/home/test').socket, '/home/test/.local/state/vibez-desktop/control.sock');
 });
 
-test('private token writes replace atomically and never become world-readable', (t) => {
+test('private token writes replace atomically and never become world-readable', { skip: process.platform === 'win32' }, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vibez-token-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const token = path.join(root, 'private/session-token');
-  saveToken(token, 'first');
-  saveToken(token, 'second');
-  assert.equal(fs.readFileSync(token, 'utf8'), 'second');
+  const platform = createPlatform({ env: { VIBEZ_DATA_DIR: path.join(root, 'private') } });
+  const token = platform.locations.token;
+  const store = createCredentialStore(platform);
+  await store.save(serverUrl(), 'first');
+  await store.save(serverUrl(), 'second');
+  assert.equal(await store.load(serverUrl()), 'second');
+  assert.equal(await store.load('https://other.example'), null);
   assert.equal(fs.statSync(token).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.dirname(token)).mode & 0o777, 0o700);
   fs.symlinkSync(path.dirname(token), path.join(root, 'symlink'));
@@ -61,16 +69,17 @@ test('private token writes replace atomically and never become world-readable', 
 
 test('actual socket and CLI work without starting Electron and recover from missing app', async (t) => {
   // Keep this path short: Unix sockets on macOS have a small pathname limit.
-  const root = fs.mkdtempSync('/tmp/vibez-ipc-');
+  const root = fs.mkdtempSync(path.join(process.platform === 'win32' ? os.tmpdir() : '/tmp', 'vibez-ipc-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const env = { ...process.env, XDG_RUNTIME_DIR: root };
-  const socket = paths(env).socket;
-  const server = await controlServer(socket, (command) => {
+  const env = { ...process.env, XDG_RUNTIME_DIR: root, VIBEZ_DATA_DIR: path.join(root, 'profile') };
+  const platform = createPlatform({ env });
+  const socket = platform.locations.socket;
+  const server = await controlServer(platform, (command) => {
     if (command === 'status') return { running: true, connected: true, title: '<track>' };
     throw new Error('not allowed');
   });
   t.after(() => server.close());
-  assert.equal(fs.statSync(socket).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(socket).mode & 0o777, 0o600);
   assert.equal((await request('status', socket)).title, '<track>');
   assert.equal((await request('arbitrary', socket)).error, 'Invalid command');
   const cli = path.join(__dirname, '../cli.cjs');
@@ -81,12 +90,12 @@ test('actual socket and CLI work without starting Electron and recover from miss
   assert.equal(JSON.parse(stopped.stdout).class, 'stopped');
 });
 
-test('launcher preserves system display selection unless explicitly overridden', async (t) => {
+test('launcher preserves system display selection unless explicitly overridden', { skip: process.platform === 'win32' }, async (t) => {
   const root = fs.mkdtempSync('/tmp/vibez-launch-');
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const runtime = path.join(root, 'runtime');
   fs.writeFileSync(runtime, '#!/bin/sh\nprintf \'%s\\n\' "$@"\n', { mode: 0o755 });
-  const launcher = path.join(__dirname, '../vibez');
+  const launcher = path.join(__dirname, '../platform/linux/vibez');
   const env = { ...process.env, VIBEZ_ELECTRON: runtime, VIBEZ_APP_DIR: '/test/app', VIBEZ_OZONE_PLATFORM: '' };
   const normal = await execute('bash', [launcher, 'open', 'vibez://channel/friend'], { env });
   assert.deepEqual(normal.stdout.trim().split('\n'), ['/test/app', 'vibez://channel/friend']);

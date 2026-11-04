@@ -1,6 +1,6 @@
 # Local release package; scripts/build-linux-package.sh supplies the source and checksum.
 pkgname=vibez-desktop
-pkgver=0.1.0
+pkgver=0.2.0
 pkgrel=1
 pkgdesc='Vibez synchronized radio client for Linux and Waybar'
 arch=('any')
@@ -22,12 +22,13 @@ package() {
   cd "$srcdir/$pkgname-$pkgver"
   install -dm755 "$pkgdir/usr/share/vibez-desktop/assets"
   install -m644 ./*.cjs package.json offline.html offline.css "$pkgdir/usr/share/vibez-desktop/"
-  install -m644 assets/*.png "$pkgdir/usr/share/vibez-desktop/assets/"
-  install -Dm755 vibez "$pkgdir/usr/bin/vibez"
-  install -Dm644 integration/vibez.desktop "$pkgdir/usr/share/applications/vibez.desktop"
+  cp -R shared platform "$pkgdir/usr/share/vibez-desktop/"
+  install -m644 assets/* "$pkgdir/usr/share/vibez-desktop/assets/"
+  install -Dm755 platform/linux/vibez "$pkgdir/usr/bin/vibez"
+  install -Dm644 platform/linux/integration/vibez.desktop "$pkgdir/usr/share/applications/vibez.desktop"
   install -Dm644 assets/vibez.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/vibez.png"
-  install -Dm644 integration/vibez.service "$pkgdir/usr/lib/systemd/user/vibez.service"
+  install -Dm644 platform/linux/integration/vibez.service "$pkgdir/usr/lib/systemd/user/vibez.service"
   install -dm755 "$pkgdir/usr/share/doc/vibez-desktop"
-  install -m644 README.md integration/waybar.* "$pkgdir/usr/share/doc/vibez-desktop/"
+  install -m644 README.md platform/linux/integration/waybar.* "$pkgdir/usr/share/doc/vibez-desktop/"
   install -Dm644 NOTICE "$pkgdir/usr/share/licenses/$pkgname/NOTICE"
 }
