@@ -1,0 +1,24 @@
+# DISABLED: GitHub only discovers .yml/.yaml files. Keep this extension until CI is authorized.
+# Enable later by renaming to release-linux.yml; this is manual-only even then.
+name: Build Linux package
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm git nodejs python
+      - uses: actions/checkout@v4
+      - name: Build locally reproducible Arch package
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          runuser -u builder -- bash scripts/build-linux-package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibez-linux-package
+          path: dist/linux/

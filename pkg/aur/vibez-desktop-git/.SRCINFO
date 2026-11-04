@@ -1,0 +1,18 @@
+pkgbase = vibez-desktop-git
+	pkgdesc = Vibez synchronized radio client for Linux and Waybar (development version)
+	pkgver = 0.2.0.r105.gc936343
+	pkgrel = 1
+	url = https://github.com/bike-shed-io/vibez
+	arch = any
+	license = LicenseRef-Unknown
+	makedepends = git
+	depends = electron44
+	depends = nodejs
+	optdepends = waybar: desktop bar module
+	optdepends = rofi: right-click menu
+	provides = vibez-desktop
+	conflicts = vibez-desktop
+	source = vibez::git+https://github.com/bike-shed-io/vibez.git#branch=feat/linux-client
+	sha256sums = SKIP
+
+pkgname = vibez-desktop-git

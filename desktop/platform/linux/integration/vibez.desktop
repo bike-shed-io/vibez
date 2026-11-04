@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Vibez
+Comment=Listen together on Vibez radio
+Exec=vibez %u
+Icon=vibez
+Terminal=false
+Categories=Audio;AudioVideo;
+MimeType=x-scheme-handler/vibez;
+StartupWMClass=Vibez
+Actions=Quit;
+
+[Desktop Action Quit]
+Name=Quit Vibez
+Exec=vibez quit

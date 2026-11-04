@@ -1,0 +1,24 @@
+# INACTIVE. Rename to release-windows.yml only after CI is explicitly enabled again.
+name: Build Windows desktop installer
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci --prefix desktop --ignore-scripts
+      - run: node --test desktop/tests/*.test.cjs
+      - run: choco install nsis --yes --no-progress
+      - run: node scripts/build-windows-package.cjs --arch x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibez-windows-x64
+          path: dist/windows/

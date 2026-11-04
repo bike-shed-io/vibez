@@ -1,0 +1,5 @@
+/* Inherit the bar's current theme, including Omarchy theme changes. */
+#custom-vibez { padding: 0 8px; }
+#custom-vibez.disconnected, #custom-vibez.stopped { opacity: 0.55; }
+#custom-vibez.muted { opacity: 0.7; }
+#custom-vibez.listening { font-weight: bold; }
