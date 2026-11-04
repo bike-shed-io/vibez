@@ -33,6 +33,11 @@ function sameOrigin(value, origin) {
   try { return new URL(value).origin === origin; } catch { return false; }
 }
 
+function hasDesktopFlag(argv, flag) {
+  const separator = argv.indexOf('--');
+  return argv.slice(0, separator < 0 ? argv.length : separator).includes(flag);
+}
+
 function cleanText(value, length = 160) {
   return typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, length) : '';
 }
@@ -53,4 +58,4 @@ function escapeMarkup(value) {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]);
 }
 
-module.exports = { DEFAULT_SERVER, serverUrl, deepLink, sameOrigin, sanitizeStatus, escapeMarkup };
+module.exports = { DEFAULT_SERVER, serverUrl, deepLink, sameOrigin, sanitizeStatus, escapeMarkup, hasDesktopFlag };

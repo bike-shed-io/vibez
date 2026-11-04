@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { serverUrl, deepLink, sameOrigin, sanitizeStatus } = require('../shared/core.cjs');
+const { serverUrl, deepLink, sameOrigin, sanitizeStatus, hasDesktopFlag } = require('../shared/core.cjs');
 const { locations: paths, privateDirectory } = require('../platform/posix.cjs');
 const { createPlatform } = require('../platform/index.cjs');
 const { createCredentialStore } = require('../credentials.cjs');
@@ -30,6 +30,14 @@ test('channel links are bounded and cannot navigate outside the configured serve
   assert.deepEqual(deepLink('vibez://auth?error=1'), { type: 'auth-error' });
   for (const value of ['https://channel/abc', 'vibez://channel/../../etc/passwd', 'vibez://channel/a?redirect=evil', 'vibez://user@channel/a', 'vibez://channel/a#evil', 'vibez://channel/%2fetc', 'vibez://auth?token=hello%0aworld']) {
     assert.equal(deepLink(value), null, value);
+  }
+});
+
+test('protocol-handler arguments cannot trigger desktop commands after the URL separator', () => {
+  assert.equal(hasDesktopFlag(['Vibez.exe', '--quit'], '--quit'), true);
+  assert.equal(hasDesktopFlag(['Vibez.exe', '--background'], '--background'), true);
+  for (const flag of ['--quit', '--uninstall-integration', '--background']) {
+    assert.equal(hasDesktopFlag(['Vibez.exe', '--', 'vibez://open', flag], flag), false);
   }
 });
 

@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Menu, Tray, ipcMain, session, shell, dialog, safeStorage } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { serverUrl, deepLink, sameOrigin, sanitizeStatus } = require('./shared/core.cjs');
+const { serverUrl, deepLink, sameOrigin, sanitizeStatus, hasDesktopFlag } = require('./shared/core.cjs');
 const { createPlatform } = require('./platform/index.cjs');
 const { createCredentialStore } = require('./credentials.cjs');
 const { controlServer } = require('./ipc.cjs');
@@ -25,17 +25,17 @@ let loadingOffline = false;
 let status = { running: true, ...sanitizeStatus() };
 const offlinePage = pathToFileURL(path.join(__dirname, 'offline.html')).href;
 let pendingLink = process.argv.map(deepLink).find(Boolean);
-const background = process.argv.includes('--background');
+const background = hasDesktopFlag(process.argv, '--background');
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
-} else if (process.argv.includes('--quit') || process.argv.includes('--uninstall-integration')) {
-  if (process.argv.includes('--uninstall-integration')) platform.removeIntegration?.();
+} else if (hasDesktopFlag(process.argv, '--quit') || hasDesktopFlag(process.argv, '--uninstall-integration')) {
+  if (hasDesktopFlag(process.argv, '--uninstall-integration')) platform.removeIntegration?.();
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    if (argv.includes('--uninstall-integration')) { platform.removeIntegration?.(); return app.quit(); }
-    if (argv.includes('--quit')) return app.quit();
+    if (hasDesktopFlag(argv, '--uninstall-integration')) { platform.removeIntegration?.(); return app.quit(); }
+    if (hasDesktopFlag(argv, '--quit')) return app.quit();
     const link = argv.map(deepLink).find(Boolean);
     if (window) handleLink(link); else pendingLink = link || { type: 'open' };
   });
