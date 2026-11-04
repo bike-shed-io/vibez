@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_dir="${VIBEZ_APP_DIR:-/usr/share/vibez-desktop}"
+case "${1:-open}" in
+  status|menu|mute|hide|quit)
+    exec /usr/bin/node "$app_dir/cli.cjs" "$@"
+    ;;
+  --version)
+    exec /usr/bin/node -p "require(process.argv[1]).version" "$app_dir/package.json"
+    ;;
+  --help|-h)
+    echo 'Usage: vibez [open|--background|status [--waybar]|menu|mute|hide|quit|vibez://channel/<id>]'
+    exit 0
+    ;;
+  open) shift ;;
+  --background|vibez://*) ;;
+  *) echo 'Unknown command. Run vibez --help.' >&2; exit 2 ;;
+esac
+
+runtime="${VIBEZ_ELECTRON:-/usr/bin/electron44}"
+if [[ ! -x "$runtime" ]]; then
+  echo "Vibez requires electron44. Install it with pacman or set VIBEZ_ELECTRON to a compatible runtime." >&2
+  exit 1
+fi
+# Arch's runtime wrapper also reads electron44-flags.conf. Never disable the sandbox.
+exec "$runtime" "--ozone-platform=${VIBEZ_OZONE_PLATFORM:-auto}" "$app_dir" "$@"

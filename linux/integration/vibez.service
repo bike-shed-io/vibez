@@ -1,0 +1,13 @@
+[Unit]
+Description=Vibez desktop radio
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vibez --background
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

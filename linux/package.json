@@ -1,0 +1,12 @@
+{
+  "name": "vibez-desktop",
+  "productName": "Vibez",
+  "version": "0.1.0",
+  "description": "Vibez Linux desktop client",
+  "main": "main.cjs",
+  "desktopName": "vibez.desktop",
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "start": "electron ."
+  }
+}

@@ -1,0 +1,16 @@
+// Merge this module into your Waybar configuration and add "custom/vibez" to a modules list.
+// 11 is free on PowerPat today. Choose another signal if your config already uses it.
+{
+  "custom/vibez": {
+    "exec": "vibez status --waybar",
+    "return-type": "json",
+    "interval": 2,
+    "signal": 11,
+    "format": "{}",
+    "max-length": 35,
+    "tooltip": true,
+    "on-click": "vibez open",
+    "on-click-right": "vibez menu",
+    "on-click-middle": "vibez mute"
+  }
+}

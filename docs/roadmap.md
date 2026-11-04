@@ -6,8 +6,9 @@ This document is the shared project memory for agents and humans working on Vibe
 
 - Vibez is a team radio for synchronized listening while working together.
 - The hosted backend at `https://vibez.bike-shed.io` remains the source of truth.
-- Web and native macOS clients use the same WebSocket protocol (v3) and server state.
-- The macOS menu-bar app is the primary UX direction; the web app stays working alongside it.
+- Web and native macOS clients use the same WebSocket protocol (v3) and server state; new clients must join those same listening sessions.
+- Desktop support is expanding to Linux so Patrick can switch between Mac and Linux. The Linux client must integrate with the desktop bar on EndeavourOS + Hyprland and also work on Omarchy; the web app stays working alongside it.
+- Android is a future client target, with Patrick's Android and friends' iOS phones available for testing. A Chrome extension is also expected later.
 - Vibez syncs metadata only. It never hosts, uploads, relays or caches audio or video; every listener plays from the source service themselves.
 - Keep SoundCloud usage conservative: no offline caching, no downloading, no bypassing intended playback restrictions.
 
@@ -22,6 +23,8 @@ This document is the shared project memory for agents and humans working on Vibe
 - macOS app: Menu-bar-only popover app in `macos/VibezMac` (no Dock icon or main window) plus the video panel.
 - Production: rootless Podman under user `vibez` on the shared Hetzner host.
 - Distribution: public tap/release repo at `bike-shed-io/homebrew-vibez`; `brew install --cask vibez` (`vibez-mac` is the legacy token).
+- Linux client implementation is in `linux/`: sandboxed Electron around the hosted player, Waybar status/menu CLI, StatusNotifier tray, native browser sign-in, channel links, and optional user service. Arch package build and `yay` recipe are prepared; see [Linux installation and test instructions](../linux/README.md).
+- Linux build automation is prepared as `.github/workflows/release-linux.yml.disabled` and stays off while Actions minutes are exhausted. Build and test locally.
 
 ## Recent Decisions
 
@@ -34,11 +37,12 @@ This document is the shared project memory for agents and humans working on Vibe
 
 ## Next
 
-1. SoundCloud on the official Widget API, same shape as the YouTube player page.
-2. Chrome extension client sharing the same protocol.
-3. Continuous drift correction for audio tracks (video already has it).
-4. Persistent channels, server-side trusted lists, Slack ↔ Google account linking (#8).
-5. Native app polish: clearer connected/offline states, onboarding/settings, optional now-playing notifications.
+1. Test the Linux client on PowerPat and Omarchy using the [desktop test procedure](../linux/README.md#tonights-test-run). Linux code and packaging follow the [PowerPat dotfiles-agent findings](linux-client-discovery.md); AUR submission and enabling CI are later steps.
+2. SoundCloud on the official Widget API, same shape as the YouTube player page.
+3. Android client exploration and Android/iOS playback testing; Chrome extension client sharing the same protocol.
+4. Continuous drift correction for audio tracks (video already has it).
+5. Persistent channels, server-side trusted lists, Slack ↔ Google account linking (#8).
+6. Native app polish: clearer connected/offline states, onboarding/settings, optional now-playing notifications.
 
 ## Working Notes For Agents
 

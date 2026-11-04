@@ -1,0 +1,4 @@
+body { margin: 0; background: #111119; color: #eee; font: 16px/1.6 system-ui, sans-serif; }
+main { max-width: 28rem; margin: 20vh auto; padding: 2rem; }
+h1 { color: #b5a0ff; }
+button { border: 0; border-radius: .5rem; padding: .8rem 1.2rem; background: #b5a0ff; color: #111119; font: inherit; cursor: pointer; }
