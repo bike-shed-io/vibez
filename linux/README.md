@@ -166,13 +166,17 @@ and session separate.
 
 ```sh
 node --test linux/tests/*.test.cjs
-# On Linux, using a disposable local fixture rather than real rooms:
-electron44 --ozone-platform=headless --headless --disable-gpu linux/tests/smoke.cjs --background
+# In a Linux graphical session, using a disposable local fixture rather than real rooms:
+electron44 linux/tests/smoke.cjs --background
 ```
 
 The Electron smoke test covers the real sandbox/preload, IPC status, visibility,
 local mute, video visibility rule, native auth, channel links, logout, and offline
 retry. It uses temporary private paths and does not touch your real session.
+For a headless native Linux runner, use `dbus-run-session -- xvfb-run -a electron44
+--disable-gpu linux/tests/smoke.cjs --background` with `xorg-server-xvfb` and
+`xorg-xauth` installed. QEMU user-mode emulation cannot run Chromium's zygote
+reliably; use native hardware for the desktop test.
 
 `.github/workflows/release-linux.yml.disabled` is a prepared, **inactive** workflow.
 GitHub does not discover that extension. When CI is wanted again, rename it to

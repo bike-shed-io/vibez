@@ -98,6 +98,7 @@ function waybar(status) {
 function request(command, socketPath = paths().socket, timeout = 1500) {
   return new Promise((resolve, reject) => {
     const client = net.createConnection(socketPath);
+    client.setEncoding('utf8');
     let received = '';
     const fail = (error) => { client.destroy(); reject(error); };
     client.setTimeout(timeout, () => fail(new Error('Vibez did not respond.')));

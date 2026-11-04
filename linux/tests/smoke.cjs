@@ -70,10 +70,12 @@ server.listen(0, '127.0.0.1', async () => {
     await window.webContents.executeJavaScript(`document.getElementById('signInLink').click()`);
     await until(() => externalUrl);
     assert.equal(externalUrl, `${fixtureOrigin}/auth/google?client=mac`);
+    const signedIn = new Promise((resolve) => window.webContents.once('did-finish-load', resolve));
     app.emit('second-instance', {}, ['vibez://auth?token=fake.signature']);
     await until(() => fs.existsSync(locations.token));
     assert.equal(JSON.parse(fs.readFileSync(locations.token)).token, 'fake.signature');
     assert.equal(fs.statSync(locations.token).mode & 0o777, 0o600);
+    await signedIn;
     await until(() => window.webContents.getURL() === `${fixtureOrigin}/`);
     await until(async () => window.webContents.executeJavaScript(`!!document.getElementById('signInLink')`));
     app.emit('second-instance', {}, ['vibez://channel/friend']);
@@ -82,10 +84,9 @@ server.listen(0, '127.0.0.1', async () => {
     await window.webContents.executeJavaScript(`fetch('/auth/logout', {method:'POST'})`);
     await until(() => !fs.existsSync(locations.token));
     available = false;
-    await window.loadURL(fixtureOrigin).catch(() => {});
-    // The real app catches load failures from its own navigations. Trigger that path via a link.
     app.emit('second-instance', {}, ['vibez://channel/offline']);
     await until(() => window.webContents.getURL().endsWith('/offline.html'));
+    await until(async () => window.webContents.executeJavaScript(`!!document.getElementById('retry')`));
     available = true;
     await window.webContents.executeJavaScript(`document.getElementById('retry').click()`);
     await until(async () => (await request('status', locations.socket)).connected);

@@ -1,6 +1,6 @@
 # AUR recipe prepared for publication; the desktop client currently lives on this branch.
 pkgname=vibez-desktop-git
-pkgver=0.1.0.r0.g0000000
+pkgver=0.1.0.r101.gacd8703
 pkgrel=1
 pkgdesc='Vibez synchronized radio client for Linux and Waybar (development version)'
 arch=('any')
