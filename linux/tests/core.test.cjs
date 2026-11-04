@@ -80,3 +80,17 @@ test('actual socket and CLI work without starting Electron and recover from miss
   const stopped = await execute(process.execPath, [cli, 'status', '--waybar'], { env });
   assert.equal(JSON.parse(stopped.stdout).class, 'stopped');
 });
+
+test('launcher preserves system display selection unless explicitly overridden', async (t) => {
+  const root = fs.mkdtempSync('/tmp/vibez-launch-');
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const runtime = path.join(root, 'runtime');
+  fs.writeFileSync(runtime, '#!/bin/sh\nprintf \'%s\\n\' "$@"\n', { mode: 0o755 });
+  const launcher = path.join(__dirname, '../vibez');
+  const env = { ...process.env, VIBEZ_ELECTRON: runtime, VIBEZ_APP_DIR: '/test/app', VIBEZ_OZONE_PLATFORM: '' };
+  const normal = await execute('bash', [launcher, 'open', 'vibez://channel/friend'], { env });
+  assert.deepEqual(normal.stdout.trim().split('\n'), ['/test/app', 'vibez://channel/friend']);
+  const x11 = await execute('bash', [launcher, 'open'], { env: { ...env, VIBEZ_OZONE_PLATFORM: 'x11' } });
+  assert.deepEqual(x11.stdout.trim().split('\n'), ['--ozone-platform=x11', '/test/app']);
+  await assert.rejects(execute('bash', [launcher, '--no-sandbox'], { env }));
+});

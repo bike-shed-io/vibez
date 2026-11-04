@@ -24,4 +24,8 @@ if [[ ! -x "$runtime" ]]; then
   exit 1
 fi
 # Arch's runtime wrapper also reads electron44-flags.conf. Never disable the sandbox.
-exec "$runtime" "--ozone-platform=${VIBEZ_OZONE_PLATFORM:-auto}" "$app_dir" "$@"
+display_flags=()
+if [[ -n "${VIBEZ_OZONE_PLATFORM:-}" ]]; then
+  display_flags+=("--ozone-platform=$VIBEZ_OZONE_PLATFORM")
+fi
+exec "$runtime" "${display_flags[@]}" "$app_dir" "$@"
