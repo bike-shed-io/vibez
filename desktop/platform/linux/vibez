@@ -4,7 +4,7 @@ set -euo pipefail
 app_dir="${VIBEZ_APP_DIR:-/usr/share/vibez-desktop}"
 case "${1:-open}" in
   status|menu|mute|hide|quit)
-    exec /usr/bin/node "$app_dir/cli.cjs" "$@"
+    exec /usr/bin/node "$app_dir/platform/linux/cli.cjs" "$@"
     ;;
   --version)
     exec /usr/bin/node -p "require(process.argv[1]).version" "$app_dir/package.json"

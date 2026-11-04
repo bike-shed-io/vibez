@@ -82,7 +82,7 @@ test('actual socket and CLI work without starting Electron and recover from miss
   if (process.platform !== 'win32') assert.equal(fs.statSync(socket).mode & 0o777, 0o600);
   assert.equal((await request('status', socket)).title, '<track>');
   assert.equal((await request('arbitrary', socket)).error, 'Invalid command');
-  const cli = path.join(__dirname, '../cli.cjs');
+  const cli = path.join(__dirname, '../platform/linux/cli.cjs');
   const live = await execute(process.execPath, [cli, 'status', '--waybar'], { env });
   assert.equal(JSON.parse(live.stdout).text, '♫ &lt;track&gt;');
   await new Promise((resolve) => server.close(resolve));

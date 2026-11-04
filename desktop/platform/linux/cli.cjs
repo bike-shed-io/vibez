@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const { spawn, spawnSync } = require('node:child_process');
-const { request } = require('./ipc.cjs');
-const { waybar } = require('./platform/linux/waybar.cjs');
+const { request } = require('../../ipc.cjs');
+const { waybar } = require('./waybar.cjs');
 
 async function main(argv) {
   const command = argv[0];
