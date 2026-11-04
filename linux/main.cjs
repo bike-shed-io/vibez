@@ -9,7 +9,12 @@ const origin = serverUrl(process.env.VIBEZ_SERVER_URL);
 privateDirectory(locations.config);
 app.setName('Vibez');
 app.setPath('userData', locations.config);
-if (process.platform === 'linux') app.setDesktopName('vibez.desktop');
+if (process.platform === 'linux') {
+  app.setDesktopName('vibez.desktop');
+  // PowerPat has no working Secret Service. The native token is already protected
+  // by a private directory/file; do not let Chromium block on a keyring either.
+  app.commandLine.appendSwitch('password-store', 'basic');
+}
 app.enableSandbox();
 
 let window;
