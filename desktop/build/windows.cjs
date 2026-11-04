@@ -53,10 +53,12 @@ async function main(argv = process.argv.slice(2)) {
   const appMetadata = { ...metadata };
   delete appMetadata.devDependencies;
   delete appMetadata.scripts;
+  delete appMetadata.overrides;
   fs.writeFileSync(path.join(payload, 'package.json'), JSON.stringify(appMetadata, null, 2));
   const icon = await pngToIco(path.join(desktop, 'assets/vibez.png'));
   fs.writeFileSync(path.join(payload, 'assets/vibez.ico'), icon);
   fs.writeFileSync(path.join(application, 'Vibez.ico'), icon);
+  fs.copyFileSync(path.join(desktop, 'NOTICE'), path.join(application, 'NOTICE-vibez.txt'));
   await asar.createPackage(payload, path.join(application, 'resources/app.asar'));
   fs.rmSync(path.join(application, 'resources/default_app.asar'), { force: true });
   fs.renameSync(path.join(application, 'electron.exe'), path.join(application, 'Vibez.exe'));

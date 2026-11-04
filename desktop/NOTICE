@@ -1,4 +1,5 @@
 Vibez desktop client and artwork are from https://github.com/bike-shed-io/vibez.
 The upstream repository has not declared a software license. Copyright and
 other rights remain with the respective authors. This notice does not grant
-additional redistribution rights. Electron is supplied separately by Arch Linux.
+additional redistribution rights. Electron is supplied by the Linux system package
+or bundled with the Windows installer, under its own included license.
